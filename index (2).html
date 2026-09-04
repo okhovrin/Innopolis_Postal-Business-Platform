@@ -1,0 +1,764 @@
+<title>Почтовый бизнес-кабинет: курс</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800;900&display=swap');
+
+  :root{
+    /* Фирменные цвета Почта Tech */
+    --brand-primary:#2942bb;
+    --brand-blue:#3d95f7;
+    --brand-coral:#ed625d;
+    --brand-orange:#ed8b00;
+    --brand-green:#52b36c;
+    --brand-black:#29293c;
+    --brand-grey-1:#dadce4;
+    --brand-grey-2:#ecedf2;
+    --brand-white:#ffffff;
+    /* хроматические бейджи всегда читаются тёмным текстом, независимо от темы */
+    --ink-on-chip: var(--brand-black);
+
+    --bg: var(--brand-grey-1);
+    --surface: var(--brand-grey-2);
+    --surface-2:#e2e5ee;
+    --ink: var(--brand-black);
+    --muted: rgba(41,41,60,.68);
+    --border: rgba(41,41,60,.16);
+    --accent: var(--brand-primary);
+    --accent-ink: var(--brand-primary);
+    --on-accent: var(--brand-white);
+    --accent-soft: rgba(41,66,187,.10);
+    --shadow: 0 1px 2px rgba(41,41,60,.07), 0 6px 20px rgba(41,41,60,.08);
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg: var(--brand-black);
+      --surface:#33344a;
+      --surface-2:#3b3c56;
+      --ink: var(--brand-white);
+      --muted: rgba(255,255,255,.66);
+      --border: rgba(255,255,255,.14);
+      --accent: var(--brand-blue);
+      --accent-ink: var(--brand-blue);
+      --on-accent: var(--brand-black);
+      --accent-soft: rgba(61,149,247,.14);
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg: var(--brand-black);
+    --surface:#33344a;
+    --surface-2:#3b3c56;
+    --ink: var(--brand-white);
+    --muted: rgba(255,255,255,.66);
+    --border: rgba(255,255,255,.14);
+    --accent: var(--brand-blue);
+    --accent-ink: var(--brand-blue);
+    --on-accent: var(--brand-black);
+    --accent-soft: rgba(61,149,247,.14);
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.4);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Golos Text', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    line-height:1.5;
+    overflow-x:hidden;
+  }
+  h1,h2,h3,h4{
+    font-family:'Golos Text', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-weight:700;
+    text-wrap:balance;
+    margin:0 0 .4em;
+    color:var(--ink);
+  }
+  a{color:var(--accent-ink);}
+  code, .mono, .tabular, .num{ font-family:'Golos Text', -apple-system, 'Segoe UI', Roboto, sans-serif; font-variant-numeric: tabular-nums; letter-spacing:.01em; }
+
+  .wrap{max-width:1080px; margin:0 auto; padding:0 20px 80px;}
+
+  /* ---------- Header ---------- */
+  header.top{
+    border-bottom:1px solid var(--border);
+    background:var(--surface);
+    position:sticky; top:0; z-index:20;
+  }
+  .top-inner{
+    max-width:1080px; margin:0 auto; padding:18px 20px 0;
+  }
+  .brand{
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px;
+  }
+  .brand-mark{ flex:0 0 auto; width:42px; height:42px; }
+  .brand-title{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .brand .stamp{
+    font-family:'Golos Text'; font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--accent); border:1px solid var(--accent); border-radius:999px; padding:3px 10px;
+    white-space:nowrap;
+  }
+  .brand h1{ font-size:22px; margin:0; }
+  .brand .sub{ color:var(--muted); font-size:13.5px; }
+
+  nav.tabs{ display:flex; gap:2px; overflow-x:auto; }
+  nav.tabs button{
+    font-family:'Golos Text'; font-weight:600; font-size:14px;
+    background:transparent; border:1px solid transparent; border-bottom:none;
+    color:var(--muted); padding:10px 16px; cursor:pointer;
+    border-radius:8px 8px 0 0; white-space:nowrap;
+    position:relative; top:1px;
+  }
+  nav.tabs button:hover{ color:var(--ink); }
+  nav.tabs button.active{
+    color:var(--ink); background:var(--bg);
+    border-color:var(--border);
+    border-bottom:1px solid var(--bg);
+  }
+
+  main{ padding-top:28px; }
+  section.panel{ display:none; }
+  section.panel.active{ display:block; animation:fade .25s ease; }
+  @keyframes fade{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+
+  .lede{ color:var(--muted); font-size:15.5px; max-width:70ch; margin-bottom:28px; }
+  .lede b{ color:var(--ink); }
+
+  /* ---------- Cards / grid ---------- */
+  .grid-lectures{
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(280px,1fr)); gap:14px;
+  }
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:16px 18px; box-shadow:var(--shadow);
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .card .row1{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .badge{
+    font-family:'Golos Text'; font-weight:600; font-size:11px; color:var(--ink);
+    background:var(--accent-soft); border-radius:6px; padding:2px 8px; white-space:nowrap;
+  }
+  .badge.alt{ color:var(--accent); background:transparent; border:1px solid var(--accent); }
+  .lec-num{ font-family:'Golos Text'; font-size:13px; color:var(--muted); }
+  .card h3{ font-size:16.5px; line-height:1.3; margin:0; }
+  .card .meta{ font-size:12.8px; color:var(--muted); display:flex; flex-wrap:wrap; gap:6px 14px; }
+  .card .desc{ font-size:13.8px; color:var(--ink); opacity:.92; }
+  .ro-tags{ display:flex; flex-wrap:wrap; gap:5px; margin-top:2px; }
+  .ro-tag{ font-size:11px; font-family:'Golos Text'; padding:1px 6px; border-radius:5px; border:1px solid var(--border); color:var(--muted); }
+  .ro-tag.main{ border-color:var(--accent); color:var(--accent-ink); }
+
+  /* ---------- Программа accordion ---------- */
+  .section-block{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    margin-bottom:12px; overflow:hidden; box-shadow:var(--shadow);
+  }
+  .section-head{
+    display:flex; justify-content:space-between; align-items:center; gap:12px;
+    padding:16px 20px; cursor:pointer; user-select:none;
+  }
+  .section-head:hover{ background:var(--surface-2); }
+  .section-head .num{
+    font-family:'Golos Text'; color:var(--accent); font-size:13px; margin-right:10px;
+  }
+  .section-head h3{ font-size:17px; margin:0; display:inline; }
+  .section-head .chev{ color:var(--muted); transition:transform .2s ease; font-size:13px; }
+  .section-block.open .chev{ transform:rotate(180deg); }
+  .section-body{ display:none; padding:0 20px 18px; border-top:1px solid var(--border); }
+  .section-block.open .section-body{ display:block; padding-top:14px; }
+  .topic-row{
+    display:flex; gap:14px; padding:9px 0; border-bottom:1px dashed var(--border);
+    font-size:14px;
+  }
+  .topic-row:last-child{ border-bottom:none; }
+  .topic-row .t-num{ font-family:'Golos Text'; color:var(--muted); font-size:12.5px; min-width:34px; }
+  .topic-row .t-title{ flex:1; }
+  .topic-row .t-ro{ font-family:'Golos Text'; font-weight:600; font-size:11.5px; color:var(--accent-ink); white-space:nowrap; }
+
+  .program-meta{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin-bottom:22px;
+  }
+  .stat{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:14px 16px; box-shadow:var(--shadow);
+  }
+  .stat .n{ font-family:'Golos Text'; font-size:22px; color:var(--accent); }
+  .stat .l{ font-size:12.5px; color:var(--muted); margin-top:2px; }
+
+  /* ---------- Расписание ---------- */
+  table.sched{ width:100%; border-collapse:collapse; font-size:13.6px; }
+  .table-wrap{ overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); box-shadow:var(--shadow); }
+  table.sched th, table.sched td{ padding:9px 12px; border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; }
+  table.sched th{ font-family:'Golos Text'; font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); background:var(--surface-2); position:sticky; top:0; }
+  table.sched td.title{ white-space:normal; min-width:260px; }
+  table.sched tr:last-child td{ border-bottom:none; }
+  table.sched tr.zachet td{ background:var(--accent-soft); font-weight:600; }
+  .fmt-pill{ font-size:11px; font-weight:600; font-family:'Golos Text'; padding:1px 7px; border-radius:5px; }
+  .fmt-online{ background:var(--brand-blue); color:var(--ink-on-chip); }
+  .fmt-offline{ background:var(--brand-orange); color:var(--ink-on-chip); }
+  .lab-chip{ font-size:11px; font-weight:600; font-family:'Golos Text'; padding:1px 7px; border-radius:5px; background:var(--brand-green); color:var(--ink-on-chip); white-space:nowrap; }
+  .lab-chip.final{ background:var(--accent); color:var(--on-accent); }
+
+  /* ---------- Задания ---------- */
+  .lab-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:16px; }
+  .lab-card{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:20px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:10px;
+  }
+  .lab-card .lab-id{ font-family:'Golos Text'; color:var(--accent); font-size:13px; }
+  .lab-card h3{ font-size:17px; margin:0; }
+  .lab-dates{ display:flex; gap:16px; font-size:12.8px; color:var(--muted); }
+  .lab-dates div b{ display:block; color:var(--ink); font-family:'Golos Text'; font-size:13px; font-weight:500; }
+  .lab-scope{ font-size:13.6px; }
+  .lab-scope ul{ margin:6px 0 0; padding-left:18px; }
+  .lab-scope li{ margin-bottom:3px; }
+  .lab-weight{ margin-top:auto; padding-top:8px; border-top:1px dashed var(--border); font-size:12.5px; color:var(--muted); }
+
+  /* ---------- Статьи ---------- */
+  .lit-controls{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+  .chip{
+    font-family:'Golos Text'; font-size:12px; padding:5px 12px; border-radius:999px;
+    border:1px solid var(--border); background:var(--surface); color:var(--muted); cursor:pointer;
+  }
+  .chip.active{ background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+  .lit-group{ margin-bottom:26px; }
+  .lit-group h3{ font-size:14px; font-family:'Golos Text'; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px; font-weight:600; }
+  .lit-item{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:14px 16px; margin-bottom:8px; box-shadow:var(--shadow);
+  }
+  .lit-item .lit-title{ font-weight:600; font-size:14.5px; }
+  .lit-item .lit-meta{ font-size:12.8px; color:var(--muted); margin-top:3px; }
+  .lit-item .lit-note{ font-size:13px; margin-top:6px; color:var(--ink); opacity:.9; }
+  .lit-item a{ font-size:12.5px; }
+
+  /* ---------- Глоссарий ---------- */
+  .gloss-search{
+    width:100%; padding:10px 14px; border-radius:var(--radius); border:1px solid var(--border);
+    background:var(--surface); color:var(--ink); font-size:14px; margin-bottom:16px; font-family:inherit;
+  }
+  .gloss-search:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+  dl.gloss{ display:grid; gap:0; max-width:100%; }
+  .gloss-item{ padding:12px 0; border-bottom:1px solid var(--border); display:grid; grid-template-columns:200px 1fr 50px; gap:16px; align-items:baseline; max-width:100%; }
+  .gloss-item dt, .gloss-item dd, .gloss-item .gloss-lec{ min-width:0; overflow-wrap:break-word; }
+  .gloss-item dt{ font-weight:600; font-family:'Golos Text'; font-size:15px; }
+  .gloss-item dd{ margin:0; font-size:13.8px; color:var(--ink); opacity:.92; }
+  .gloss-item .gloss-lec{ font-family:'Golos Text'; font-size:11.5px; color:var(--muted); text-align:right; }
+  @media (max-width:640px){
+    .gloss-item{ grid-template-columns:1fr; gap:4px; }
+    .gloss-item .gloss-lec{ text-align:left; }
+  }
+
+  .note{
+    background:var(--accent-soft); border:1px solid var(--accent); border-radius:var(--radius);
+    padding:14px 18px; font-size:13.5px; margin-bottom:24px; color:var(--ink);
+  }
+  .note b{ color:var(--accent-ink); }
+  footer.site{ text-align:center; color:var(--muted); font-size:12.5px; padding:40px 0 10px; }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+</style>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 208 208" aria-hidden="true">
+        <path fill="var(--accent)" d="M163 110L144.97 146.05C141.92 152.148 135.69 156 128.87 156H84L104.45 118.359C107.25 113.208 112.65 110 118.51 110H163ZM93.62 97.998C96.32 102.318 96.46 107.765 93.99 112.218L73 150L48.15 113.134C44.37 107.528 44.05 100.277 47.33 94.361L68 57L93.62 97.998ZM123.23 52C129.31 52 134.98 55.07 138.3 60.162L163 98H144L129.09 74.502C126.52 70.453 122.06 68 117.27 68H88.94L79 52H123.23Z"/>
+      </svg>
+      <div class="brand-title">
+        <span class="stamp">Иннополис · 2026/27</span>
+        <h1>Почтовый бизнес-кабинет</h1>
+      </div>
+      <span class="sub">как устроен и развивается цифровой B2B-продукт</span>
+    </div>
+    <nav class="tabs" id="tabs"></nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="panel" data-panel="lectures">
+    <p class="lede">Публичные анонсы двадцати занятий курса. Здесь — тема, дата, формат и связь с результатами обучения; полные материалы и тексты занятий доступны студентам курса в Moodle.</p>
+    <div class="grid-lectures" id="lecturesGrid"></div>
+  </section>
+
+  <section class="panel" data-panel="program">
+    <p class="lede">Курс состоит из пяти разделов и двадцати занятий. Сквозная линия курса — проектирование одной функции (по умолчанию «Управление возвратами») последовательно через архитектуру, программный интерфейс, безопасность и эксплуатацию в четырёх лабораторных работах.</p>
+    <div class="program-meta" id="programMeta"></div>
+    <div id="programList"></div>
+  </section>
+
+  <section class="panel" data-panel="schedule">
+    <p class="lede">Календарный план занятий 2026/27 учебного года. Отдельным столбцом отмечена выдача и сдача лабораторных работ.</p>
+    <div class="table-wrap">
+      <table class="sched">
+        <thead><tr><th>№</th><th>Дата</th><th>Формат</th><th>Занятие</th><th>Раздел</th><th>Лаб. работы</th></tr></thead>
+        <tbody id="schedBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="assignments">
+    <p class="lede">Четыре лабораторные работы курса — последовательные этапы проектирования одной сквозной функции: от продуктовой логики до эксплуатации и вывода из строя.</p>
+    <div class="lab-grid" id="labGrid"></div>
+  </section>
+
+  <section class="panel" data-panel="literature">
+    <p class="lede">Основная и дополнительная литература курса — издания электронно-библиотечных систем университета и открытые отраслевые источники.</p>
+    <div class="lit-controls" id="litFilters"></div>
+    <div id="litList"></div>
+  </section>
+
+  <section class="panel" data-panel="glossary">
+    <p class="lede">Термины, вводимые занятиями курса. Число в правом столбце — номер занятия, на котором термин появляется впервые.</p>
+    <input class="gloss-search" id="glossSearch" type="text" placeholder="Поиск термина…">
+    <dl class="gloss" id="glossList"></dl>
+  </section>
+
+</main>
+
+<footer class="site">Курс «Postal Business Portal: How a Digital B2B Product Is Built and Evolves». Автор программы — Ховрин О. И. Прототип публичной страницы курса.</footer>
+
+<script>
+/* ===================== DATA ===================== */
+
+const SECTIONS = [
+  {n:1, title:"Цифровой B2B-продукт: контекст, клиенты, метрики", range:"Занятия 1–4"},
+  {n:2, title:"Архитектура информационной системы и работа с данными", range:"Занятия 5–9"},
+  {n:3, title:"Программные интерфейсы и интеграция с внешними ИС", range:"Занятия 10–13"},
+  {n:4, title:"Безопасность, эксплуатация и развитие продукта", range:"Занятия 14–18"},
+  {n:5, title:"Верификация инженерных решений и жизненный цикл продукта", range:"Занятия 19–20"},
+];
+
+const LECTURES = [
+{n:1, section:1, title:"Введение: Почтовый Бизнес-кабинет как информационная система для корпоративных клиентов", date:"14 сентября 2026", day:"пн", format:"офлайн", roMain:["РО-2"], roSup:["РО-10"],
+ desc:"Что такое цифровой личный кабинет юридического лица крупного федерального оператора, зачем он нужен корпоративным клиентам и какие регуляторные ограничения на него накладываются."},
+{n:2, section:1, title:"Сегментация корпоративных клиентов и модель пользователя", date:"21 сентября 2026", day:"пн", format:"онлайн", roMain:["РО-1"], roSup:["РО-10"],
+ desc:"Как различаются клиенты B2B-платформы по масштабу и типу бизнеса, чем клиент отличается от пользователя и какие каналы взаимодействия им доступны."},
+{n:3, section:1, title:"Метрики и юнит-экономика B2B-продукта", date:"25 сентября 2026", day:"пт", format:"онлайн", roMain:["РО-1"], roSup:["РО-10"], lab:"ЛР-1 выдаётся",
+ desc:"Какими метриками измеряется здоровье цифрового B2B-продукта, как устроена сквозная воронка от заявки до выручки и где проходит граница применимости привычных метрик."},
+{n:4, section:1, title:"Продуктовые гипотезы, эксперименты и приоритизация", date:"28 сентября 2026", day:"пн", format:"онлайн", roMain:["РО-1"], roSup:["РО-10"],
+ desc:"Как проверять продуктовые решения до начала полноценной разработки и как приоритизировать работу команды при ограниченных ресурсах."},
+{n:5, section:2, title:"Архитектура ИС и модульная декомпозиция в условиях унаследованного ландшафта", date:"2 октября 2026", day:"пт", format:"онлайн", roMain:["РО-2"], roSup:["РО-3"], lab:"выбор сквозной функции",
+ desc:"Как современные архитектурные решения — микросервисы, микрофронтенды — сочетаются в одной системе с многолетним технологическим наследием крупной организации."},
+{n:6, section:2, title:"Модель состояний бизнес-процесса и событийная интеграция сервисов", date:"5 октября 2026", day:"пн", format:"онлайн", roMain:["РО-3"], roSup:["РО-2"],
+ desc:"Как формально описывать жизненный цикл бизнес-сущности конечным автоматом и какими проверками искать в такой модели дефекты ещё на этапе проектирования."},
+{n:7, section:2, title:"Распределённые транзакции и взаимодействие с биллингом", date:"12 октября 2026", day:"пн", format:"онлайн", roMain:["РО-3"], roSup:["РО-10"],
+ desc:"Как согласуются деньги и операции между независимыми сервисами, чем сверка отличается от компенсации и как устроен жизненный цикл платежа в B2B-кабинете."},
+{n:8, section:2, title:"Пакетная обработка и асинхронные конвейеры", date:"19 октября 2026", day:"пн", format:"офлайн", roMain:["РО-4"], roSup:["РО-3"],
+ desc:"Как система обрабатывает массовые операции клиента — например, загрузку файла с сотнями отправлений — и как сообщает о частичных результатах такой обработки."},
+{n:9, section:2, title:"Аналитика, конвейеры данных и аналитические хранилища", date:"23 октября 2026", day:"пт", format:"офлайн", roMain:["РО-4"], roSup:["РО-10"], lab:"ЛР-1 сдаётся",
+ desc:"Как поверх операционной системы строятся отчётность и витрины данных и почему аналитическая и операционная нагрузка требуют разных архитектурных решений."},
+{n:10, section:3, title:"Стандарты информационного взаимодействия и проектирование публичного API", date:"26 октября 2026", day:"пн", format:"онлайн", roMain:["РО-5"], roSup:["РО-2"], lab:"ЛР-2 выдаётся",
+ desc:"Как проектируется и документируется программный интерфейс для внешних разработчиков: версионирование, модель ошибок, идемпотентность операций."},
+{n:11, section:3, title:"Защита программного интерфейса и изоляция каскадных отказов", date:"30 октября 2026", day:"пт", format:"онлайн", roMain:["РО-6"], roSup:["РО-3"],
+ desc:"Как система защищается от перегрузки запросами и не даёт отказу одного компонента вызвать цепочку отказов во всей платформе."},
+{n:12, section:3, title:"Аутентификация и авторизация", date:"2 ноября 2026", day:"пн", format:"онлайн", roMain:["РО-6"], roSup:["РО-1"],
+ desc:"Как устроены вход в кабинет, делегированная аутентификация через внешнего поставщика идентичности, роли и разграничение прав внутри одного клиента."},
+{n:13, section:3, title:"Интеграция с внешними информационными системами и омниканальность", date:"6 ноября 2026", day:"пт", format:"онлайн", roMain:["РО-9"], roSup:["РО-5","РО-2"], lab:"ЛР-3 выдаётся",
+ desc:"Как продукт взаимодействует с соседними системами организации и что технически требуется для единого клиентского пути через разные каналы обслуживания."},
+{n:14, section:4, title:"Безопасность B2B-платформы", date:"9 ноября 2026", day:"пн", format:"онлайн", roMain:["РО-7"], roSup:["РО-6","РО-10"],
+ desc:"Какие классы уязвимостей характерны для крупных веб-платформ, что такое модель нарушителя и как выстраивается эшелонированная защита."},
+{n:15, section:4, title:"Наблюдаемость и метрики работы информационной системы", date:"16 ноября 2026", day:"пн", format:"онлайн", roMain:["РО-8"], roSup:["РО-2","РО-10"], lab:"ЛР-2 сдаётся",
+ desc:"Как устроены мониторинг, оповещения и показатели доступности промышленной системы и почему у наблюдаемости есть собственная методология."},
+{n:16, section:4, title:"Тестирование функциональных и нефункциональных характеристик информационной системы", date:"20 ноября 2026", day:"пт", format:"онлайн", roMain:["РО-8"], roSup:["РО-5","РО-7"],
+ desc:"Что и как тестируется перед выпуском изменений: от модульных тестов до нагрузочного тестирования и релизного чек-листа."},
+{n:17, section:4, title:"Легаси и технический долг", date:"23 ноября 2026", day:"пн", format:"онлайн", roMain:["РО-9"], roSup:["РО-2","РО-10"],
+ desc:"Что такое технический долг, кто фактически платит за его накопление и как проектируется постепенное замещение унаследованных участков системы."},
+{n:18, section:4, title:"Прототипирование и эволюция пользовательского интерфейса B2B-кабинета", date:"27 ноября 2026", day:"пт", format:"онлайн", roMain:["РО-9"], roSup:["РО-8","РО-1","РО-10"], lab:"ЛР-3 сдаётся · ЛР-4 выдаётся",
+ desc:"Как меняется интерфейс продукта без остановки работы клиентов, чем канареечная выкладка отличается от пользовательского переключателя и как измерять качество перехода."},
+{n:19, section:5, title:"Верификация архитектуры информационной системы и взаимное рецензирование", date:"30 ноября 2026", day:"пн", format:"онлайн", roMain:["РО-3","РО-5"], roSup:["РО-7","РО-10"],
+ desc:"Как искать дефекты проектирования, читая артефакт до того, как он стал системой, и как устроено профессиональное рецензирование чужого технического решения."},
+{n:20, section:5, title:"Жизненный цикл информационной системы. Омниканальность как целевое состояние", date:"7 декабря 2026", day:"пн", format:"онлайн", roMain:["РО-9","РО-10"], roSup:["РО-2"], lab:"ЛР-4 сдаётся", final:true,
+ desc:"Как проектируется вывод функциональности из эксплуатации и что требуется от архитектуры, интерфейсов и данных для по-настоящему единого омниканального клиентского пути. Завершающее занятие курса."},
+];
+
+const ASSIGNMENTS = [
+  {id:"ЛР-1", title:"Продуктовая логика и сегментация", issue:"Занятие 3 · 25.09.2026", due:"Занятие 9 · 23.10.2026", mode:"индивидуально", weight:"15 баллов из 100",
+   scope:["Профиль одного клиентского сегмента (ММСБ, КРБ или маркетплейс)","Три продуктовые метрики с указанием порождающего события","Две продуктовые гипотезы с критериями подтверждения и отказа"]},
+  {id:"ЛР-2", title:"Архитектура и данные сквозной функции", issue:"Занятие 10 · 26.10.2026", due:"Занятие 15 · 16.11.2026", mode:"индивидуально / в группе", weight:"15 баллов из 100",
+   scope:["Архитектурная схема выбранной сквозной функции","Модель состояний бизнес-процесса и её формальная проверка","Витрина данных и архитектурные ограничения унаследованного ландшафта"]},
+  {id:"ЛР-3", title:"Программный интерфейс и защита", issue:"Занятие 13 · 06.11.2026", due:"Занятие 18 · 27.11.2026", mode:"индивидуально / в группе", weight:"15 баллов из 100",
+   scope:["Спецификация операций программного интерфейса","Пользовательская документация к интерфейсу","Механизм защиты от каскадных отказов (размыкатель цепи)","Ролевая модель доступа с областью видимости"]},
+  {id:"ЛР-4", title:"Безопасность и эксплуатация: сборка и трассировка решения", issue:"Занятие 18 · 27.11.2026", due:"Занятие 20 · 07.12.2026", mode:"индивидуально / в группе", weight:"15 баллов из 100",
+   scope:["Портфолио из пяти артефактов практикумов: верификация интерфейса, метрики и оповещения, показатель доступности, релизный чек-лист, план замещения","Трассировка одного архитектурного решения через все четыре лабораторные работы","Сдача ЛР-4 — условие допуска к дифференцированному зачёту"]},
+];
+
+const LIT_MAIN = [
+  {title:"Проектирование информационных систем", authors:"Грекул В. И., Денищенко Г. Н., Коровкина Н. Л.", year:2024, pages:299, isbn:"978-5-4497-3335-1", url:"https://www.iprbookshop.ru/books/142298/details", rel:"жизненный цикл ИС, модели предметной области — занятия 1, 5, 6", cat:"main"},
+  {title:"Построение распределенных систем на Java", authors:"Свистунов А. Н.", year:2025, pages:316, isbn:"978-5-4497-0940-0", url:"https://www.iprbookshop.ru/books/146380/details", rel:"взаимодействие распределённых компонентов, обработка отказов — занятия 5, 7", cat:"main"},
+  {title:"Web-технологии", authors:"Сычев А. В.", year:2024, pages:407, isbn:"978-5-4497-2429-8", url:"https://www.iprbookshop.ru/books/133914/details", rel:"HTTP, клиент-серверное взаимодействие, программные интерфейсы — занятия 10–13", cat:"main"},
+  {title:"Проектирование хранилищ данных для систем деловой осведомлённости (Business Intelligence Systems)", authors:"Туманов В. Е.", year:2026, pages:937, isbn:"978-5-4497-1651-4", url:"https://www.iprbookshop.ru/books/160030/details", rel:"многомерная модель, факты и измерения, конвейеры загрузки — занятие 9", cat:"main"},
+  {title:"Качество и тестирование программного обеспечения. Метрология программного обеспечения", authors:"Проскуряков А. В.", year:2022, pages:197, isbn:"978-5-9275-4044-0", url:"https://www.iprbookshop.ru/books/125702/details", rel:"виды тестирования и метрики качества — занятие 16", cat:"main"},
+  {title:"Верификация программного обеспечения", authors:"Синицын С. В., Налютин Н. Ю.", year:2020, pages:367, isbn:"978-5-4497-0653-9", url:"https://www.iprbookshop.ru/books/97540/details", rel:"формальная верификация моделей, поиск дефектов проектирования — занятия 6, 19", cat:"main"},
+];
+
+const LIT_BY_SECTION = [
+ {section:1, items:[
+   {title:"Проектирование информационных систем. Системная и бизнес-аналитика", authors:"Кугаевских А. В.", year:2018, pages:256, isbn:"978-5-7782-3608-0", url:"https://www.iprbookshop.ru/books/91689/details"},
+   {title:"Разработка требований к программному продукту", authors:"Лыгина Н. И., Лауферман О. В.", year:2023, pages:76, isbn:"978-5-7782-4987-5", url:"https://www.iprbookshop.ru/books/155837/details"},
+   {title:"Стратегия управления взаимоотношениями с клиентами (CRM)", authors:"Черкашин П. А.", year:2024, pages:420, isbn:"978-5-4497-3341-2", url:"https://www.iprbookshop.ru/books/142306/details"},
+   {title:"Автоматизация бизнес-систем: BPMS, CRM, ERP", authors:"Тарасьев А. А., под ред. Лаптева В. М.", year:2024, pages:152, isbn:"978-5-7996-3885-6", url:"https://www.iprbookshop.ru/books/157009/details"},
+ ]},
+ {section:2, items:[
+   {title:"Введение в UML", authors:"Бабич А. В.", year:2026, pages:198, isbn:"978-5-4497-1637-8", url:"https://www.iprbookshop.ru/books/160017/details"},
+   {title:"Конечные автоматы и формальные языки", authors:"Алымова Е. В., Деундяк В. М., Пеленицын А. М.", year:2018, pages:292, isbn:"978-5-9275-2397-9", url:"https://www.iprbookshop.ru/books/87427/details"},
+   {title:"Введение в распределённые системы", authors:"Петрухнова Г. В.", year:2021, pages:81, isbn:"978-5-7731-0925-9", url:"https://www.iprbookshop.ru/books/111462/details"},
+   {title:"Распределённые сервис-ориентированные системы", authors:"Резник В. Г.", year:2020, pages:305, isbn:"—", url:"https://www.iprbookshop.ru/books/152848/details"},
+   {title:"Теория и практика параллельных вычислений", authors:"Гергель В. П.", year:2024, pages:500, isbn:"978-5-4497-2462-5", url:"https://www.iprbookshop.ru/books/133984/details"},
+   {title:"Основы SQL", authors:"Полякова Л. Н.", year:2024, pages:273, isbn:"978-5-4497-3313-9", url:"https://www.iprbookshop.ru/books/142282/details"},
+   {title:"Введение в модель данных SQL", authors:"Кузнецов С. Д.", year:2025, pages:350, isbn:"978-5-4497-0873-1", url:"https://www.iprbookshop.ru/books/146330/details"},
+   {title:"Большие данные", authors:"Параскевов А. В., Сергеев А. Э.", year:2024, pages:148, isbn:"978-5-9729-2120-1", url:"https://www.iprbookshop.ru/books/143597/details"},
+   {title:"Методы, алгоритмы и архитектуры распределённой обработки больших данных", authors:"Никифоров И. В. и др.", year:2023, pages:194, isbn:"978-5-7422-8461-1", url:"https://www.iprbookshop.ru/books/147723/details"},
+ ]},
+ {section:3, items:[
+   {title:"Основы web-технологий", authors:"Храмцов П. Б. и др.", year:2024, pages:374, isbn:"978-5-4497-3314-6", url:"https://www.iprbookshop.ru/books/142283/details"},
+   {title:"Разработка программных интерфейсов веб-приложений с использованием фреймворка FastAPI", authors:"Елисеев А. И., Минин Ю. В.", year:2024, pages:80, isbn:"978-5-8265-2821-1", url:"https://www.iprbookshop.ru/books/148486/details"},
+   {title:"Разработка веб-сервисов", authors:"Давыдовский М. А.", year:2020, pages:112, isbn:"—", url:"https://www.iprbookshop.ru/books/115881/details"},
+   {title:"Техническая документация информационных систем", authors:"Шикина В. Е.", year:2018, pages:93, isbn:"978-5-9795-1852-7", url:"https://www.iprbookshop.ru/books/106122/details"},
+   {title:"Язык программирования Python", authors:"Сузи Р. А.", year:2024, pages:350, isbn:"978-5-4497-3351-1", url:"https://www.iprbookshop.ru/books/142310/details"},
+   {title:"Сетевая информационная безопасность", authors:"Басыня Е. А.", year:2023, pages:224, isbn:"978-5-7262-2949-2", url:"https://www.iprbookshop.ru/books/132693/details"},
+   {title:"Интеграция информационных систем", authors:"Баранова О. М.", year:2022, pages:47, isbn:"978-5-7264-3096-6", url:"https://www.iprbookshop.ru/books/131562/details"},
+ ]},
+ {section:4, items:[
+   {title:"Защита Web-приложений", authors:"Скрыпников А. В. и др.", year:2020, pages:76, isbn:"978-5-00032-469-1", url:"https://www.iprbookshop.ru/books/106438/details"},
+   {title:"Анализ уязвимостей и защита программного обеспечения", authors:"Фот Ю. Д., Ларионова Е. И.", year:2025, pages:141, isbn:"978-5-7410-3391-3", url:"https://www.iprbookshop.ru/books/153174/details"},
+   {title:"ITIL. IT Service Management по стандартам V.3.1", authors:"Скрипник Д. А.", year:2024, pages:372, isbn:"978-5-4497-2424-3", url:"https://www.iprbookshop.ru/books/133913/details"},
+   {title:"Тестирование программного обеспечения", authors:"Николюкин М. С., Конкина В. В., Патутин К. И.", year:2025, pages:80, isbn:"978-5-8265-2883-9", url:"https://www.iprbookshop.ru/books/154963/details"},
+   {title:"Проектирование и юзабилити-исследование пользовательских интерфейсов", authors:"Компаниец В. С., Лызь А. Е.", year:2020, pages:107, isbn:"978-5-9275-3637-5", url:"https://www.iprbookshop.ru/books/115528/details"},
+   {title:"Надёжность информационных систем", authors:"Бычков А. А.", year:2024, pages:135, isbn:"978-5-9275-4794-4", url:"https://www.iprbookshop.ru/books/146903/details"},
+ ]},
+ {section:5, items:[
+   {title:"Объектно-ориентированное программирование и программная инженерия", authors:"Мейер Б.", year:2024, pages:284, isbn:"978-5-4497-2464-9", url:"https://www.iprbookshop.ru/books/133956/details"},
+   {title:"Командная разработка программного обеспечения с помощью системы контроля версий GIT", authors:"Рощин П. Г.", year:2022, pages:106, isbn:"978-5-7262-2846-4", url:"https://www.iprbookshop.ru/books/132682/details"},
+ ]},
+];
+
+const LIT_EXTERNAL = [
+  {title:"SQL and NoSQL Databases", authors:"Kaufmann M., Meier A.", year:2023, pages:254, url:"https://link.springer.com/book/10.1007/978-3-031-27908-9", note:"занятие 9"},
+  {title:"OWASP Top 10 (актуальная редакция)", authors:"OWASP Foundation", url:"https://owasp.org/Top10/", note:"занятие 14"},
+  {title:"Спецификация OpenAPI (актуальная версия)", authors:"OpenAPI Initiative", url:"https://spec.openapis.org/", note:"занятие 10"},
+];
+
+const GLOSSARY = [
+ {t:"ЛК ЮЛ", d:"Сокращённое обозначение личного кабинета юридического лица, используемое в курсе для Почтового Бизнес-кабинета.", n:1},
+ {t:"Витринная архитектура", d:"Архитектурный подход, при котором клиентский интерфейс объединяет функциональность нескольких независимых систем через единую «витрину».", n:1},
+ {t:"Проблема атрибуции отказов", d:"Сложность разграничения, чей отказ — кабинета или смежной системы — увидел клиент, если для него оба выглядят как один сервис.", n:1},
+ {t:"ШПИ", d:"Штриховой почтовый идентификатор — уникальный код почтового отправления.", n:1},
+ {t:"Омниканальность", d:"Обеспечение единого клиентского пути независимо от канала обращения: веб, файл, программный интерфейс, офлайн.", n:1},
+ {t:"Открытая отчётность / внутренняя оценка", d:"Статус данных: сведения, публикуемые организацией открыто, — против оценок, используемых только в учебных целях курса.", n:1},
+ {t:"Клиент", d:"Юридическое лицо, заключившее договор на оказание услуг.", n:2},
+ {t:"Пользователь", d:"Физическое лицо, работающее в кабинете от имени клиента с определённой ролью.", n:2},
+ {t:"Ось сегментации", d:"Признак, по которому клиентская база делится на сегменты: масштаб, канал, тип бизнеса.", n:2},
+ {t:"КРБ", d:"Крупный региональный бизнес — сегмент клиентов с наибольшим объёмом операций.", n:2},
+ {t:"ММСБ", d:"Малый и средний бизнес.", n:2},
+ {t:"Канал взаимодействия", d:"Способ обращения к системе: веб-интерфейс, файловая загрузка, программный интерфейс.", n:2},
+ {t:"Источник приёма", d:"Точка физического приёма отправления клиента.", n:2},
+ {t:"Кастомный продукт", d:"Тарифное или продуктовое решение, настроенное индивидуально под одного клиента.", n:2},
+ {t:"MAU / WAU / DAU", d:"Число уникальных активных клиентов или пользователей за месяц, неделю и день соответственно.", n:3},
+ {t:"YAU", d:"Число уникальных активных клиентов или пользователей за год.", n:3},
+ {t:"ARPU", d:"Средняя выручка на одного активного пользователя.", n:3},
+ {t:"Сквозная воронка", d:"Последовательность этапов от привлечения клиента до получения выручки.", n:3},
+ {t:"Время до первой ценности", d:"Период между регистрацией клиента и первым полезным действием в системе.", n:3},
+ {t:"CES", d:"Customer Effort Score — метрика усилий, которые клиенту пришлось приложить для решения задачи.", n:3},
+ {t:"NPS", d:"Net Promoter Score — индекс готовности клиента рекомендовать продукт.", n:3},
+ {t:"CSI", d:"Customer Satisfaction Index — индекс удовлетворённости клиента.", n:3},
+ {t:"CAC / LTV", d:"Стоимость привлечения клиента и совокупная ценность клиента за время работы с продуктом.", n:3},
+ {t:"Юнит", d:"Минимальная единица, на которую считается экономика продукта: клиент, отправление, договор.", n:3},
+ {t:"Продуктовая гипотеза", d:"Предположение о продукте, которое можно проверить экспериментом до полноценной разработки.", n:4},
+ {t:"Критерий подтверждения / отказа", d:"Заранее заданное условие, при котором гипотеза считается подтверждённой либо отклонённой.", n:4},
+ {t:"Тестовый лендинг", d:"Упрощённая посадочная страница для проверки спроса до разработки функциональности.", n:4},
+ {t:"Поэтапный раскат", d:"Постепенное включение новой функциональности на ограниченную аудиторию или регион.", n:4},
+ {t:"Партнёрский пилот", d:"Ограниченный совместный эксперимент с одним партнёром перед масштабированием решения.", n:4},
+ {t:"Скоринговая модель приоритизации", d:"Метод ранжирования задач по нескольким взвешенным критериям.", n:4},
+ {t:"Микросервис", d:"Независимо разрабатываемый и разворачиваемый компонент системы с собственной зоной ответственности.", n:5},
+ {t:"Микрофронтенд", d:"Независимо разрабатываемая и выпускаемая часть пользовательского интерфейса.", n:5},
+ {t:"BFF", d:"Backend for Frontend — серверный слой, агрегирующий обращения фронтенда к нескольким сервисам.", n:5},
+ {t:"API Gateway", d:"Компонент, через который проходят внешние запросы к программному интерфейсу системы.", n:5},
+ {t:"Унаследованный технологический ландшафт", d:"Совокупность решений и систем, принятых в разное время и с разной степенью актуальности.", n:5},
+ {t:"Изоляция отказов", d:"Архитектурный принцип, при котором отказ одного компонента не должен приводить к отказу всей системы.", n:5},
+ {t:"Состояние сущности", d:"Одно из возможных положений бизнес-объекта в его жизненном цикле.", n:6},
+ {t:"Конечный автомат бизнес-процесса", d:"Формальная модель, описывающая состояния сущности и переходы между ними.", n:6},
+ {t:"Недостижимое состояние", d:"Состояние, в которое не ведёт ни один переход из начального.", n:6},
+ {t:"Тупиковое состояние", d:"Состояние, из которого нет выхода к конечному.", n:6},
+ {t:"Событие предметной области", d:"Факт, зафиксированный в бизнес-логике системы, например «отправление принято».", n:6},
+ {t:"Событие интеграции", d:"Техническое сообщение, которым сервисы обмениваются друг с другом.", n:6},
+ {t:"RPC поверх очереди", d:"Способ реализовать синхронный по смыслу вызов через асинхронный механизм сообщений.", n:6},
+ {t:"Распределённая транзакция", d:"Операция, затрагивающая несколько независимых сервисов и требующая согласованности между ними.", n:7},
+ {t:"Saga", d:"Общеотраслевой паттерн управления распределённой транзакцией через последовательность локальных транзакций и компенсаций.", n:7},
+ {t:"Компенсирующая операция", d:"Действие, отменяющее эффект ранее выполненного шага распределённой транзакции.", n:7},
+ {t:"Идемпотентность", d:"Свойство операции, при котором повторное её выполнение не меняет результат.", n:7},
+ {t:"Холдирование", d:"Временная блокировка средств на балансе клиента до подтверждения операции.", n:7},
+ {t:"Сверка", d:"Процедура сопоставления данных двух систем для выявления и устранения расхождений постфактум.", n:7},
+ {t:"Асинхронная обработка", d:"Выполнение операции без немедленного ожидания результата клиентом.", n:8},
+ {t:"Поллинг статуса", d:"Периодический опрос клиентом состояния асинхронной операции.", n:8},
+ {t:"Двухуровневая валидация", d:"Проверка данных сначала по формату, затем по бизнес-правилам, требующим контекста.", n:8},
+ {t:"Экспоненциальная пауза", d:"Стратегия увеличения интервала между повторными попытками при отказе.", n:8},
+ {t:"Ограничение на входе", d:"Предельный объём данных, принимаемый системой за одну операцию, например на файл.", n:8},
+ {t:"Витрина данных", d:"Специализированное хранилище, оптимизированное под аналитические запросы определённой предметной области.", n:9},
+ {t:"Факт / измерение", d:"Измеримое событие аналитической модели и аналитический разрез, по которому группируются факты.", n:9},
+ {t:"ETL / ELT", d:"Процесс извлечения, преобразования и загрузки данных между операционными и аналитическими хранилищами.", n:9},
+ {t:"CQRS", d:"Паттерн разделения моделей чтения и записи данных.", n:9},
+ {t:"Согласованность в конечном счёте", d:"Свойство распределённой системы, при котором данные становятся согласованными не мгновенно, а через некоторое время.", n:9},
+ {t:"Публичный программный интерфейс", d:"Интерфейс, документированный и предоставленный для использования внешними разработчиками.", n:10},
+ {t:"Контракт интерфейса", d:"Совокупность согласованных ожиданий о поведении интерфейса между поставщиком и потребителем.", n:10},
+ {t:"Обратная совместимость", d:"Свойство новой версии интерфейса не нарушать работу существующих клиентов.", n:10},
+ {t:"Пометка об устаревании", d:"Уведомление в ответе интерфейса о том, что метод или версия будут отключены.", n:10},
+ {t:"Спецификация OpenAPI", d:"Общепринятый формат машиночитаемого описания программного интерфейса.", n:10},
+ {t:"Ключ идемпотентности", d:"Уникальный признак запроса, позволяющий распознать его повтор и не выполнить операцию дважды.", n:10},
+ {t:"Token bucket", d:"Алгоритм ограничения нагрузки, при котором запросы расходуют накопленные «токены».", n:11},
+ {t:"Каскадная деградация", d:"Ситуация, при которой отказ одного компонента вызывает цепочку отказов в зависимых компонентах.", n:11},
+ {t:"Размыкатель цепи", d:"Компонент, который временно прекращает обращения к отказывающей зависимости (circuit breaker).", n:11},
+ {t:"Переборка", d:"Приём изоляции ресурсов, при котором отказ в одной зоне не расходует ресурсы, нужные другим (bulkhead).", n:11},
+ {t:"Аутентификация", d:"Подтверждение того, что пользователь является тем, за кого себя выдаёт.", n:12},
+ {t:"Авторизация", d:"Определение того, какие действия разрешены аутентифицированному пользователю.", n:12},
+ {t:"Поставщик идентичности", d:"Система, отвечающая за проверку подлинности пользователя.", n:12},
+ {t:"Bearer-токен", d:"Токен доступа, предъявление которого достаточно для получения доступа к ресурсу.", n:12},
+ {t:"Область видимости", d:"Множество объектов, на которое распространяется разрешённое пользователю действие.", n:12},
+ {t:"Усиленная квалифицированная электронная подпись", d:"Вид электронной подписи с наивысшим уровнем юридической значимости.", n:12},
+ {t:"Контур системы", d:"Совокупность систем, объединённых общей организационной или технической границей.", n:13},
+ {t:"Сервис-адаптер", d:"Компонент, инкапсулирующий особенности взаимодействия с внешней системой.", n:13},
+ {t:"Веб-хук", d:"Механизм уведомления внешней системы о событии через HTTP-вызов.", n:13},
+ {t:"Сквозной идентификатор клиента", d:"Единый признак, по которому клиент узнаётся во всех системах организации.", n:13},
+ {t:"Модель нарушителя", d:"Описание потенциального злоумышленника и его возможностей, используемое при анализе угроз.", n:14},
+ {t:"IDOR", d:"Небезопасная прямая ссылка на объект — уязвимость, при которой можно обратиться к чужому объекту, подставив его идентификатор.", n:14},
+ {t:"Эшелонирование защиты", d:"Принцип использования нескольких независимых уровней защиты вместо одного.", n:14},
+ {t:"Наблюдаемость", d:"Свойство системы, позволяющее по внешним сигналам понять её внутреннее состояние.", n:15},
+ {t:"«Золотые сигналы»", d:"Общепринятый набор ключевых показателей эксплуатации: задержка, трафик, ошибки, насыщение.", n:15},
+ {t:"Оповещение (алерт)", d:"Автоматическое уведомление о превышении порогового значения показателя.", n:15},
+ {t:"Распределённая трассировка", d:"Техника отслеживания одного запроса через все сервисы, которые он затронул.", n:15},
+ {t:"Показатель доступности", d:"Доля времени, в течение которого сервис отвечает согласно ожиданиям.", n:15},
+ {t:"Флаг функциональности", d:"Управляемый переключатель, включающий или отключающий часть функциональности без выпуска новой версии.", n:15},
+ {t:"Детектор класса дефектов", d:"Механизм, срабатывающий на определённый вид дефекта.", n:16},
+ {t:"Мок (заглушка)", d:"Заранее подготовленный ответ, подставляемый вместо обращения к смежной системе.", n:16},
+ {t:"Контрактное тестирование", d:"Проверка, при которой ожидания потребителя интерфейса прогоняются на стороне поставщика.", n:16},
+ {t:"Регрессионное тестирование", d:"Проверка того, что ранее работавшее поведение системы не изменилось.", n:16},
+ {t:"Нефункциональные характеристики", d:"Свойства системы, не сводящиеся к её функциям: производительность, устойчивость, доступность, безопасность.", n:16},
+ {t:"Релизный чек-лист", d:"Перечень действий и проверок при выпуске, не встроенных в автоматический конвейер.", n:16},
+ {t:"Технический долг", d:"Разница между тем, как система устроена, и тем, как её спроектировали бы сегодня, измеренная стоимостью следующего изменения.", n:17},
+ {t:"Плательщик (техдолга)", d:"Сторона, фактически несущая издержки технического долга — не всегда та, что принимала решение.", n:17},
+ {t:"Strangler Fig", d:"Шаблон замещения — постепенная замена унаследованного участка новой реализацией за общим фасадом.", n:17},
+ {t:"Единица замещения", d:"Наименьший самостоятельный кусок функциональности, который можно перенести и включить отдельно.", n:17},
+ {t:"Двойное сопровождение", d:"Состояние, при котором старая и новая реализации существуют одновременно и обе требуют поддержки.", n:17},
+ {t:"Дизайн-система", d:"Общий словарь визуальных элементов и компонентов интерфейса.", n:18},
+ {t:"Канареечная выкладка", d:"Включение новой реализации на части трафика, отбираемой командой.", n:18},
+ {t:"Пользовательский тумблер", d:"Переключение между реализациями, отданное на выбор клиенту, а не команде.", n:18},
+ {t:"Событие намерения / результата", d:"Замер того, что пользователь потянулся к функции, — против замера того, чем операция закончилась.", n:18},
+ {t:"Сигнал отказа", d:"Событие, означающее, что пользователь отверг новое решение.", n:18},
+ {t:"Верификация", d:"Проверка артефакта на соответствие правилам его нотации и самому себе — до и независимо от реализации.", n:19},
+ {t:"Валидация", d:"Проверка того, что построено то, что было нужно, в отличие от верификации («построено ли правильно»).", n:19},
+ {t:"Дефект проектирования", d:"Свойство артефакта, из которого при реализации закономерно следует отказ, уязвимость или неоправданная стоимость изменения.", n:19},
+ {t:"Эталон", d:"Решение той же задачи, принятое не проверяющим: опубликованный интерфейс, стандарт, реализация другой команды.", n:19},
+ {t:"Обоснованный отказ", d:"Мотивированный отказ автора принять замечание рецензента — равноценный принятию по форме ответа.", n:19},
+ {t:"Вывод функциональности из эксплуатации", d:"Прекращение работы функции с обязательствами перед теми, кто ею пользовался.", n:20},
+ {t:"Прекращение поддержки версии", d:"Вывод из эксплуатации публичной версии интерфейса с неизвестными заранее внешними потребителями.", n:20},
+ {t:"Объявление об устаревании", d:"Заблаговременное уведомление о дате отключения функции с указанием замены.", n:20},
+ {t:"Пробное отключение", d:"Короткое плановое отключение по расписанию, позволяющее потребителю обнаружить зависимость заранее.", n:20},
+ {t:"Слой бизнес-сервисов", d:"Слой платформы, где расположены сервисы, участвующие в оказании услуг клиентам через каналы.", n:20},
+ {t:"Технологический слой", d:"Слой платформы, обеспечивающий соответствие нефункциональным требованиям бизнес-сервисов.", n:20},
+ {t:"Метрика результата", d:"Измерение достигнутого эффекта для клиента, а не объёма проделанной работы (в отличие от метрики прогресса).", n:20},
+];
+
+/* ===================== RENDER ===================== */
+
+const TABS = [
+  {id:"lectures", label:"Лекции"},
+  {id:"program", label:"Программа"},
+  {id:"schedule", label:"Расписание"},
+  {id:"assignments", label:"Задания"},
+  {id:"literature", label:"Статьи"},
+  {id:"glossary", label:"Глоссарий"},
+];
+
+function el(tag, cls, html){ const e=document.createElement(tag); if(cls) e.className=cls; if(html!==undefined) e.innerHTML=html; return e; }
+
+function renderTabs(){
+  const nav = document.getElementById('tabs');
+  TABS.forEach((t,i)=>{
+    const b = el('button', i===0?'active':'', t.label);
+    b.dataset.tab = t.id;
+    b.addEventListener('click', ()=>switchTab(t.id));
+    nav.appendChild(b);
+  });
+}
+function switchTab(id){
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===id));
+  document.querySelectorAll('section.panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===id));
+  location.hash = id;
+}
+
+function roTagsHtml(lec){
+  let out = '<div class="ro-tags">';
+  lec.roMain.forEach(r=> out += `<span class="ro-tag main">${r}</span>`);
+  lec.roSup.forEach(r=> out += `<span class="ro-tag">${r}</span>`);
+  out += '</div>';
+  return out;
+}
+
+function renderLectures(){
+  const grid = document.getElementById('lecturesGrid');
+  LECTURES.forEach(lec=>{
+    const c = el('div','card');
+    c.innerHTML = `
+      <div class="row1">
+        <span class="lec-num">Занятие ${lec.n}</span>
+        <span class="badge">Раздел ${lec.section}</span>
+      </div>
+      <h3>${lec.title}</h3>
+      <div class="meta">
+        <span>${lec.date} (${lec.day})</span>
+        <span class="${lec.format==='онлайн'?'fmt-pill fmt-online':'fmt-pill fmt-offline'}">${lec.format}</span>
+        ${lec.lab? `<span class="lab-chip">${lec.lab}</span>`:''}
+        ${lec.final? `<span class="lab-chip final">завершающее занятие</span>`:''}
+      </div>
+      <p class="desc">${lec.desc}</p>
+      ${roTagsHtml(lec)}
+    `;
+    grid.appendChild(c);
+  });
+}
+
+function renderProgram(){
+  const meta = document.getElementById('programMeta');
+  const stats = [
+    {n:"20", l:"занятий"},
+    {n:"5", l:"разделов дисциплины"},
+    {n:"4", l:"лабораторные работы"},
+    {n:"13", l:"учебных недель"},
+  ];
+  stats.forEach(s=>{
+    meta.appendChild(el('div','stat', `<div class="n">${s.n}</div><div class="l">${s.l}</div>`));
+  });
+
+  const list = document.getElementById('programList');
+  SECTIONS.forEach(sec=>{
+    const block = el('div','section-block');
+    const head = el('div','section-head', `<div><span class="num">Раздел ${sec.n}</span><h3>${sec.title}</h3></div><span class="chev">▾</span>`);
+    const body = el('div','section-body');
+    LECTURES.filter(l=>l.section===sec.n).forEach(l=>{
+      const row = el('div','topic-row');
+      row.innerHTML = `<span class="t-num">№${l.n}</span><span class="t-title">${l.title}</span><span class="t-ro">${l.roMain.join(', ')}</span>`;
+      body.appendChild(row);
+    });
+    head.addEventListener('click', ()=> block.classList.toggle('open'));
+    block.appendChild(head);
+    block.appendChild(body);
+    list.appendChild(block);
+  });
+  if(list.firstChild) list.firstChild.classList.add('open');
+
+  const note = el('div','note', `<b>Итоговый контроль.</b> Дифференцированный зачёт — 21 декабря 2026 года, отдельным мероприятием: блиц-тест по терминологии (30 минут, 20 вопросов) и устное собеседование по сданным лабораторным работам (до 15 минут). Условие допуска — сдача всех четырёх лабораторных работ. Автор программы — Ховрин Олег Игоревич, главный тестировщик.`);
+  list.parentElement.insertBefore(note, list);
+}
+
+function renderSchedule(){
+  const body = document.getElementById('schedBody');
+  LECTURES.forEach(l=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="num">${l.n}</td>
+      <td>${l.date} <span style="color:var(--muted)">(${l.day})</span></td>
+      <td><span class="${l.format==='онлайн'?'fmt-pill fmt-online':'fmt-pill fmt-offline'}">${l.format}</span></td>
+      <td class="title">${l.title}</td>
+      <td>Раздел ${l.section}</td>
+      <td>${l.lab? `<span class="lab-chip">${l.lab}</span>`:'—'}</td>
+    `;
+    body.appendChild(tr);
+  });
+  const zr = document.createElement('tr');
+  zr.className = 'zachet';
+  zr.innerHTML = `<td class="num">—</td><td>21 декабря 2026</td><td><span class="fmt-pill fmt-offline">офлайн</span></td><td class="title">Дифференцированный зачёт</td><td>—</td><td>допуск: все 4 ЛР</td>`;
+  body.appendChild(zr);
+}
+
+function renderAssignments(){
+  const grid = document.getElementById('labGrid');
+  ASSIGNMENTS.forEach(a=>{
+    const c = el('div','lab-card');
+    c.innerHTML = `
+      <span class="lab-id">${a.id}</span>
+      <h3>${a.title}</h3>
+      <div class="lab-dates">
+        <div>Выдача<b>${a.issue}</b></div>
+        <div>Сдача<b>${a.due}</b></div>
+      </div>
+      <div class="lab-scope"><ul>${a.scope.map(s=>`<li>${s}</li>`).join('')}</ul></div>
+      <div class="lab-weight">${a.mode} · ${a.weight}</div>
+    `;
+    grid.appendChild(c);
+  });
+}
+
+function litItemHtml(it){
+  return `<div class="lit-item">
+    <div class="lit-title">${it.title}</div>
+    <div class="lit-meta">${it.authors} — ${it.year? it.year+', ':''}${it.pages? it.pages+' с.':''}${it.isbn && it.isbn!=='—' ? ' · ISBN '+it.isbn : ''}</div>
+    ${it.note? `<div class="lit-note">${it.note}</div>`:''}
+    ${it.rel? `<div class="lit-note">${it.rel}</div>`:''}
+    <a href="${it.url}" target="_blank" rel="noopener">открыть в ЭБС / первоисточник →</a>
+  </div>`;
+}
+
+function renderLiterature(){
+  const listEl = document.getElementById('litList');
+  function draw(filter){
+    listEl.innerHTML = '';
+    if(filter==='all' || filter==='main'){
+      const g = el('div','lit-group');
+      g.appendChild(el('h3','', 'Основная литература'));
+      LIT_MAIN.forEach(it=> g.insertAdjacentHTML('beforeend', litItemHtml(it)));
+      listEl.appendChild(g);
+    }
+    LIT_BY_SECTION.forEach(sec=>{
+      if(filter!=='all' && filter!=='sec'+sec.section) return;
+      const g = el('div','lit-group');
+      g.appendChild(el('h3','', 'Раздел ' + sec.section + ' — дополнительная литература'));
+      sec.items.forEach(it=> g.insertAdjacentHTML('beforeend', litItemHtml(it)));
+      listEl.appendChild(g);
+    });
+    if(filter==='all' || filter==='ext'){
+      const g = el('div','lit-group');
+      g.appendChild(el('h3','', 'Открытые источники'));
+      LIT_EXTERNAL.forEach(it=> g.insertAdjacentHTML('beforeend', litItemHtml(it)));
+      listEl.appendChild(g);
+    }
+  }
+  const filters = document.getElementById('litFilters');
+  const opts = [{id:'all',label:'Всё'},{id:'main',label:'Основная'},{id:'sec1',label:'Раздел 1'},{id:'sec2',label:'Раздел 2'},{id:'sec3',label:'Раздел 3'},{id:'sec4',label:'Раздел 4'},{id:'sec5',label:'Раздел 5'},{id:'ext',label:'Открытые источники'}];
+  opts.forEach((o,i)=>{
+    const chip = el('button','chip'+(i===0?' active':''), o.label);
+    chip.addEventListener('click', ()=>{
+      filters.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+      chip.classList.add('active');
+      draw(o.id);
+    });
+    filters.appendChild(chip);
+  });
+  draw('all');
+}
+
+function renderGlossary(){
+  const listEl = document.getElementById('glossList');
+  function draw(items){
+    listEl.innerHTML = '';
+    items.forEach(g=>{
+      const item = el('div','gloss-item');
+      item.innerHTML = `<dt>${g.t}</dt><dd>${g.d}</dd><span class="gloss-lec">З.${g.n}</span>`;
+      listEl.appendChild(item);
+    });
+  }
+  draw(GLOSSARY);
+  document.getElementById('glossSearch').addEventListener('input', (e)=>{
+    const q = e.target.value.trim().toLowerCase();
+    draw(GLOSSARY.filter(g=> g.t.toLowerCase().includes(q) || g.d.toLowerCase().includes(q)));
+  });
+}
+
+renderTabs();
+renderLectures();
+renderProgram();
+renderSchedule();
+renderAssignments();
+renderLiterature();
+renderGlossary();
+
+const initial = (location.hash||'').replace('#','');
+switchTab(TABS.some(t=>t.id===initial) ? initial : TABS[0].id);
+</script>
