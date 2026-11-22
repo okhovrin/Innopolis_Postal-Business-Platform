@@ -79,34 +79,34 @@
 
 ```mermaid
 flowchart TB
-  user(["<b>Пользователь клиента</b><br/>"person""])
-  integ(["<b>Клиент-интегратор<br/>(маркетплейс)</b><br/>"external_system""])
+  user(["<b>Пользователь клиента</b><br/>person"])
+  integ(["<b>Клиент-интегратор<br/>(маркетплейс)</b><br/>external_system"])
 
-  subgraph LK["ЛК ЮЛ "System""]
-    mf["<b>Микрофронтенды<br/>(React)</b><br/>"container"<br/><i>+ экран "Возвраты"</i>"]
-    bff["<b>web-client<br/>(BFF)</b><br/>"container"<br/><i>+ методы возвратов</i>"]
-    files["<b>Сервис разбора<br/>файлов</b><br/>"container"<br/><i>+ формат списка<br/>возвратов</i>"]
-    gw["<b>API Gateway</b><br/>"container"<br/><i>+ маршруты /returns</i>"]
-    rest["<b>REST API</b><br/>"container"<br/><i>+ методы /returns</i>"]
-    auth["<b>Сервис<br/>авторизации</b><br/>"container"<br/><i>+ право возвраты</i>"]
-    ret["<b>Сервис возвратов</b><br/>"container" · НОВЫЙ<br/>жизненный цикл,<br/>связь с прямым<br/>отправлением"]
-    retdb[("<b>БД возвратов</b><br/>Postgres<br/>"container" · новая")]
-    mq["<b>RabbitMQ</b><br/>"container"<br/><i>+ очереди событий<br/>возвратов</i>"]
-    track["<b>Сервис<br/>отслеживания РПО</b><br/>"container"<br/><i>+ публикует операции<br/>возвратов</i>"]
-    pub["<b>Фоновая публикация<br/>в шину</b><br/>"container"<br/><i>+ публикует события<br/>возвратов</i>"]
-    subgraph MONEY["Денежный контур"]
-      bal["<b>Онлайн Баланс</b><br/>"container"<br/><i>+ подписка<br/>ReturnDelivered</i>"]
+  subgraph LK[ЛК ЮЛ · System]
+    mf[Микрофронтенды React · container<br/>+ экран Возвраты]
+    bff[web-client BFF · container<br/>+ методы возвратов]
+    files[Сервис разбора файлов · container<br/>+ формат списка возвратов]
+    gw[API Gateway · container<br/>+ маршруты /returns]
+    rest[REST API · container<br/>+ методы /returns]
+    auth[Сервис авторизации · container<br/>+ право возвраты]
+    ret[Сервис возвратов · container НОВЫЙ<br/>жизненный цикл, связь с прямым отправлением]
+    retdb[(БД возвратов Postgres · container новая)]
+    mq[RabbitMQ · container<br/>+ очереди событий возвратов]
+    track[Сервис отслеживания РПО · container<br/>+ публикует операции возвратов]
+    pub[Фоновая публикация в шину · container<br/>+ публикует события возвратов]
+    subgraph MONEY[Денежный контур]
+      bal[Онлайн Баланс · container<br/>+ подписка ReturnDelivered]
     end
   end
 
-  ship["<b>API отправлений</b><br/>"container"<br/>смежный API"]
+  ship[API отправлений · container<br/>смежный API]
 
-  subgraph EXT["Внешний контур"]
-    sso["<b>Единый шлюз<br/>авторизации</b><br/>"external_system""]
-    tariff["<b>Тарификатор</b><br/>"external_system""]
-    bus["<b>Корпоративная<br/>шина данных</b><br/>"external_system""]
-    notif["<b>Сервис<br/>нотификаций</b><br/>"external_system""]
-    fin["<b>Системы<br/>финансового учёта</b><br/>"external_system""]
+  subgraph EXT[Внешний контур]
+    sso[Единый шлюз авторизации · external_system]
+    tariff[Тарификатор · external_system]
+    bus[Корпоративная шина данных · external_system]
+    notif[Сервис нотификаций · external_system]
+    fin[Системы финансового учёта · external_system]
   end
 
   %% Вход 1 - веб
