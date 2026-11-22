@@ -109,14 +109,14 @@ flowchart TB
     fin[Системы финансового учёта · external_system]
   end
 
-  %% Вход 1 - веб
+  %% Вход 1 — веб
   user -->|"Uses [https]"| mf
   mf -->|"Calls [http/json]"| bff
   bff -->|"Makes API calls [http/json]"| rest
   bff -->|"Sends file [?]"| files
   files -->|"Creates batch [?]"| rest
 
-  %% Вход 2 - API
+  %% Вход 2 — API
   integ -->|"Calls /returns<br/>[http/json + Bearer]"| gw
   gw -->|"Routes [http/json]"| rest
 
