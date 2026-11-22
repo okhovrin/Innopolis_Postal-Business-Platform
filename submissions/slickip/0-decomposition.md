@@ -78,6 +78,7 @@
 ## Container Diagram - схема в Mermaid
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'primaryTextColor':'#000','noteTextColor':'#000'}}}%%
 flowchart TB
   user(["<b>Пользователь клиента</b><br/>person"])
   integ(["<b>Клиент-интегратор<br/>(маркетплейс)</b><br/>external_system"])
