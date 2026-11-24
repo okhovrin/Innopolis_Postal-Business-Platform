@@ -1,0 +1,196 @@
+openapi: 3.0.3
+info:
+  title: Управление возвратами -- фрагмент (Г1, оформить возврат)
+  version: "1.0.0"
+  description: >
+    Оформление одного возврата ранее отправленного отправления.
+    Имена полей и коды -- личное проектное решение (учебная спецификация).
+paths:
+  /1.0/returns:
+    post:
+      summary: Оформить возврат отправления
+      operationId: createReturn
+      tags: [returns]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >
+            Уникальный ключ логической операции (UUID), его формирует клиент.
+            При повторе того же запроса передаётся тот же ключ. Хранится 24 часа.
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateReturnRequest" }
+      responses:
+        "201":
+          description: >
+            Сделано. Возврат оформлен: стоимость рассчитана, удержана с баланса,
+            ШПИ возврата присвоен. Состояние -- ISSUED.
+          headers:
+            Location:
+              description: Адрес созданного возврата, /1.0/returns/{returnId}
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Return" }
+        "202":
+          description: >
+            Принято, но не выполнено. Заявка создана в состоянии DRAFT с pending=AWAITING_HOLD,
+            удержание отложено: расчётная система временно недоступна.
+            Сервис сам доведёт оформление в течение 15 минут. Статус -- по Location.
+          headers:
+            Location:
+              description: Адрес возврата для опроса статуса
+              schema: { type: string }
+            Retry-After:
+              description: Через сколько секунд опрашивать статус
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Return" }
+        "400":
+          description: >
+            Неверный запрос: нет обязательного поля, неверный формат ШПИ,
+            неизвестный код причины, нет заголовка Idempotency-Key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: Нет токена доступа или токен истёк.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: >
+            Токен не даёт права оформлять возвраты по указанному договору.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: >
+            Отправление с таким ШПИ не найдено среди отправлений клиента
+            (в том числе если оно принадлежит другому клиенту).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: >
+            Конфликт с текущим состоянием: по отправлению уже есть активный возврат
+            (RETURN_ALREADY_EXISTS) или запрос с этим ключом ещё выполняется
+            (IDEMPOTENCY_KEY_IN_PROGRESS).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: >
+            Запрос корректен по формату, но нарушает бизнес-правило:
+            отправление нельзя вернуть (SHIPMENT_NOT_RETURNABLE),
+            недостаточно средств (INSUFFICIENT_FUNDS),
+            тот же ключ с другим телом (IDEMPOTENCY_KEY_REUSED).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Превышен предел запросов. Повторить после Retry-After.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "500":
+          description: Внутренняя ошибка. Повтор с тем же ключом безопасен.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: >
+            Расчёт стоимости недоступен (TARIFF_UNAVAILABLE): без цены возврат
+            не оформляется. Ничего не создано и не удержано. Повторить после Retry-After.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+components:
+  schemas:
+    CreateReturnRequest:
+      type: object
+      required: [contractNumber, originalBarcode, reasonCode]
+      properties:
+        contractNumber:
+          type: string
+          description: Номер договора клиента, от имени которого оформляется возврат.
+        originalBarcode:
+          type: string
+          pattern: '^([0-9]{14}|[A-Z]{2}[0-9]{9}[A-Z]{2})$'
+          description: ШПИ исходного (прямого) отправления -- 14 цифр(«Почта России») или 13 символов(международный).
+        reasonCode:
+          type: string
+          description: Код причины возврата из справочника причин.
+        comment:
+          type: string
+          maxLength: 500
+          description: Комментарий клиента к причине (необязательно).
+        declaredWeightGrams:
+          type: integer
+          minimum: 1
+          description: Заявленный вес в граммах; если не указан -- берётся вес исходного отправления.
+    Return:
+      type: object
+      required: [returnId, status, originalBarcode, createdAt]
+      properties:
+        returnId:
+          type: string
+          format: uuid
+          description: Идентификатор заявки на возврат -- для всех дальнейших операций.
+        status: { $ref: "#/components/schemas/ReturnStatus" }
+        pending:
+          type: string
+          nullable: true
+          enum: [AWAITING_HOLD, HOLD_FAILED]
+          description: >
+            Для DRAFT: AWAITING_HOLD -- сервис ещё пытается оформить;
+            HOLD_FAILED -- не оформлено за 15 минут, нужно оформить повторно или отменить.
+        originalBarcode: { type: string, description: ШПИ исходного отправления }
+        returnBarcode:
+          type: string
+          nullable: true
+          description: ШПИ возвратного отправления; null, пока возврат не оформлен.
+        reasonCode: { type: string }
+        holdAmountKopecks:
+          type: integer
+          nullable: true
+          description: Удержанная стоимость пересылки в копейках; null, пока удержания нет.
+        currency: { type: string, example: RUB }
+        createdAt: { type: string, format: date-time }
+    ReturnStatus:
+      type: string
+      description: >
+        Состояние заявки по модели З-6. Список может расширяться:
+        клиент обязан корректно обрабатывать незнакомые значения.
+      enum: [DRAFT, ISSUED, ACCEPTED, DELAYED, COMPLETED,
+             CANCELLED, NOT_ACCEPTED, CLOSED_UNDELIVERED]
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, description: машиночитаемый код -- часть контракта }
+        message: { type: string, description: для человека -- не часть контракта }
+        requestId: { type: string, description: идентификатор запроса для поддержки и журналов }
+        details:
+          type: array
+          description: Уточнения -- какое поле и почему (для 400 и 422).
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              code: { type: string }
+        relatedReturnId:
+          type: string
+          format: uuid
+          description: Для RETURN_ALREADY_EXISTS -- идентификатор уже существующего возврата.

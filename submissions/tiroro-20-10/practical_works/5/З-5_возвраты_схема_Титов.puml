@@ -1,0 +1,101 @@
+@startuml returns_container
+' Практикум З-5 / «Управление возвратами» / container diagram (C4)
+' Нотация курса: стереотип у каждого элемента; связь = действие по направлению + [протокол];
+' [?] -- протокол неизвестен; [AMQP] на связях с RabbitMQ -- вывод из вида брокера, не цитата.
+' Цвет: оранжевый -- новый контейнер; синий контур -- существующий, меняется; серый -- внешний/смежный.
+
+skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam roundCorner 6
+skinparam nodesep 40
+skinparam ranksep 55
+skinparam ArrowColor #555A6E
+skinparam ArrowFontSize 11
+skinparam ArrowFontColor #29293C
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #2B3FC0
+  BorderThickness 2
+  FontColor #1F2A6B
+  StereotypeFontColor #555A6E
+  StereotypeFontSize 11
+}
+skinparam rectangle<<external_system>> {
+  BackgroundColor #ECEDF2
+  BorderColor #9A9CB0
+  BorderThickness 1
+  FontColor #29293C
+}
+skinparam rectangle<<person>> {
+  BackgroundColor #2B3FC0
+  BorderColor #2B3FC0
+  FontColor #FFFFFF
+  StereotypeFontColor #DDE2FF
+}
+skinparam database {
+  BackgroundColor #FFF3E0
+  BorderColor #E07B00
+  BorderThickness 2
+  FontColor #7A3E00
+  StereotypeFontColor #7A3E00
+}
+
+rectangle "**Пользователь клиента**\nоператор, финансист" <<person>> as user
+rectangle "**Клиент-интегратор**\nсистема клиента" <<external_system>> as integ
+
+rectangle "ЛК ЮЛ «System»" as lk #F7F8FB;line:9A9CB0;line.dashed {
+  rectangle "**Микрофронтенды (React)**\n+ микрофронтенд «Возвраты»" <<container>> as mf
+  rectangle "**web-client — BFF**\n+ методы экрана возвратов" <<container>> as bff
+  rectangle "**API Gateway**\n+ публичные методы возвратов,\nлимиты" <<container>> as gw
+  rectangle "**Сервис авторизации**\n+ право «оформление возврата»" <<container>> as auth
+  rectangle "**Сервис разбора файлов**\n+ тип файла «список на возврат»" <<container>> as files
+  rectangle "**REST API**\n+ ресурс «возвраты»: проверка,\nрасчёт стоимости, передача" <<container>> as rest
+  rectangle "**Сервис возвратов**  НОВЫЙ\nжизненный цикл возврата,\nподписка на операции,\nзапуск денежного контура" <<container>> as ret #FFF3E0;line:E07B00;text:7A3E00
+  database "**БД возвратов**  НОВАЯ\nPostgres" <<container>> as retdb
+  rectangle "**RabbitMQ**\n+ очереди возвратов\nи команд на зачисление" <<container>> as mq
+  rectangle "**Сервис отслеживания РПО**\n+ публикует операции\nпо возвратным отправлениям" <<container>> as track
+  rectangle "**Онлайн Баланс**\n+ «зачисление по возврату»\nс подтверждением" <<container>> as bal
+  rectangle "**Фоновая публикация в шину**\n+ события возвратов" <<container>> as pub
+}
+
+rectangle "**Единый шлюз авторизации**" <<external_system>> as sso
+rectangle "**Тарификатор**\nсервис-партнёр" <<external_system>> as tariff
+rectangle "**Корпоративная шина данных**" <<external_system>> as bus
+rectangle "**Системы финансового учёта**" <<external_system>> as fin
+rectangle "**Сервис нотификаций**" <<external_system>> as notif
+
+user -[hidden]right- integ
+' вход 1 — человек
+user --> mf : Uses\n[https]
+mf --> bff : Calls\n[http/json]
+bff --> rest : Makes API calls\n[http/json]
+bff --> files : Sends return list file\n[?]
+files --> rest : Creates returns from list\n[?]
+bff --> bal : Reads balance and refunds\n[http/json]
+
+' вход 2 — машина
+integ --> gw : Calls\n[http/json + Bearer]
+gw --> rest : Routes calls\n[http/json]
+
+' ядро — возврат отправления
+rest --> auth : Checks token and right\n[?]
+auth --> sso : Authenticates\n[OAuth 2.0 / OIDC]
+rest --> tariff : Calculates return cost, sync\n[http]
+rest --> ret : Creates / reads returns\n[http/json]
+ret --> retdb : Reads / writes\n[SQL]
+track --> bus : Reads operations\n[REST]
+track --> mq : Publishes return operations\n[AMQP]
+ret --> mq : Consumes return operations;\npublishes refund commands\nand return events\n[AMQP]
+
+' следствие — возврат денег
+bal --> mq : Consumes refund commands,\nconfirms\n[AMQP]
+bal --> fin : Exchanges clients and balance\n[?]
+
+' наружу
+pub --> mq : Consumes return events\n[AMQP]
+pub --> bus : Publishes\n[REST]
+ret --> notif : Sends return notification\n[?]
+
+@enduml
