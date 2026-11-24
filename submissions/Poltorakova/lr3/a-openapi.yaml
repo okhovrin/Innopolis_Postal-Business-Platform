@@ -1,0 +1,390 @@
+openapi: 3.0.3
+
+info:
+  title: Управление возвратами - публичный интерфейс
+  version: "1.0"
+  description: |
+    Публичный программный интерфейс фичи "Управление возвратами"
+
+    Через него внешний разработчик клиента оформляет и отслеживает возвраты
+    без экрана кабинета. Это тот же контракт, что используют оба входа
+    системы: экран (через BFF) и программа интегратора (напрямую)
+
+    Версионирование: версия в пути (/1.0/) означает строку адреса, а не
+    контракт. Ломающее изменение - новый путь /2.0/. Добавление
+    необязательного поля или нового поля ответа версию не поднимает
+
+    Область видимости: каждый запрос ограничен объектами того клиента,
+    от имени которого действует субъект токена. Признак принадлежности -
+    client_id, взятый из токена, а не из запроса
+
+servers:
+  - url: https://api.example.ru
+    description: Продуктивный контур, доступен из общедоступной сети
+
+security:
+  - bearerAuth: []
+
+paths:
+  /1.0/returns:
+    post:
+      summary: Создать заявку на возврат
+      operationId: createReturn
+      description: |
+        Создаёт заявку на возврат ранее доставленного отправления
+
+        Идемпотентность: обязателен заголовок Idempotency-Key (UUID v4,
+        генерирует клиент). Соответствие «ключ - результат» хранится 24 часа.
+        Повтор с тем же ключом и тем же телом возвращает сохранённый
+        результат с кодом 201. Повтор с тем же ключом и другим телом
+        отклоняется кодом 422
+
+        Принадлежность объекта: исходное отправление проверяется по ШПИ
+        среди отправлений того client_id, который взят из токена. Чужой
+        ШПИ даёт 404, а не 403 - существование чужого объекта не
+        раскрывается
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReturnRequest"
+            example:
+              original_shipment_barcode: "12345678901234"
+              return_point_id: "PVZ-MSK-001"
+              reason: "DEFECT"
+              comment: "Упаковка повреждена при доставке"
+      responses:
+        "201":
+          description: Заявка создана, стоимость удержана на балансе
+          headers:
+            Location:
+              description: Адрес созданного возврата
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Return"
+              example:
+                return_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                status: "CREATED"
+                created_at: "2026-11-23T10:15:00Z"
+                deadline: "2026-12-07T23:59:59Z"
+                drop_off_code: "481516"
+                estimated_cost: 250.00
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Отправление с таким ШПИ не найдено среди объектов клиента
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                code: "SHIPMENT_NOT_FOUND"
+                message: "Отправление с указанным ШПИ не найдено"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyMismatch"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /1.0/returns/{returnId}:
+    get:
+      summary: Получить возврат по идентификатору
+      operationId: getReturn
+      description: |
+        Возвращает карточку возврата
+
+        Принадлежность объекта: возврат выбирается по паре
+        (return_id, client_id из токена). Возврат другого клиента даёт 404.
+        Это проверка на уровне запроса к БД, а не проверка роли: роль может
+        разрешать чтение возвратов, но не указывает, чьих именно
+      parameters:
+        - $ref: "#/components/parameters/ReturnId"
+      responses:
+        "200":
+          description: Карточка возврата
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Return"
+        "404":
+          description: Возврат не найден среди объектов клиента
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                code: "RETURN_NOT_FOUND"
+                message: "Возврат не найден"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /1.0/returns/{returnId}/cancel:
+    post:
+      summary: Отменить заявку на возврат
+      operationId: cancelReturn
+      description: |
+        Переводит возврат из состояния CREATED в CANCELLED.
+        Допустим только до приёмки товара на пункте выдачи: после перехода
+        в ACCEPTED отмена невозможна
+
+        Стиль процедурный, потому что операция - переход состояния
+        существующего объекта, а не создание ресурса
+
+        Идемпотентность: повторная отмена уже отменённого возврата
+        возвращает 200 с текущим состоянием, а не ошибку. Это позволяет
+        клиенту безопасно повторять запрос при сетевой ошибке даже без
+        ключа; заголовок Idempotency-Key поддерживается дополнительно
+
+        Принадлежность объекта: возврат ищется по паре
+        (return_id, client_id из токена)
+      parameters:
+        - $ref: "#/components/parameters/ReturnId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      responses:
+        "200":
+          description: Возврат отменён (или уже был отменён)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Return"
+        "404":
+          description: Возврат не найден среди объектов клиента
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                code: "RETURN_NOT_FOUND"
+                message: "Возврат не найден"
+        "409":
+          description: Отмена невозможна на текущем состоянии
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                already_accepted:
+                  value:
+                    code: "RETURN_ALREADY_ACCEPTED"
+                    message: "Возврат уже принят на пункте выдачи и не может быть отменён"
+                    current_status: "ACCEPTED"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Токен доступа OAuth 2.0 / OIDC, полученный у сервиса идентификации.
+        Передаётся в заголовке Authorization: Bearer <токен>
+        Токен подписан, но не зашифрован: его утверждения читает любой держатель
+
+  parameters:
+    ReturnId:
+      name: returnId
+      in: path
+      required: true
+      description: Идентификатор возврата (UUID)
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Ключ идемпотентности (UUID v4), генерирует клиент.
+        Хранится 24 часа. Повтор с тем же ключом и другим телом - 422
+      schema: { type: string, format: uuid }
+    IdempotencyKeyOptional:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Необязателен: операция идемпотентна по своей природе
+        (повторная отмена не меняет результат)
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: Некорректные данные запроса
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            invalid_barcode:
+              value:
+                code: "INVALID_BARCODE_FORMAT"
+                message: "ШПИ должен содержать 14 цифр"
+                field: "original_shipment_barcode"
+            missing_key:
+              value:
+                code: "MISSING_IDEMPOTENCY_KEY"
+                message: "Не указан обязательный заголовок Idempotency-Key"
+                field: "Idempotency-Key"
+    Conflict:
+      description: Конфликт бизнес-правил
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            already_exists:
+              value:
+                code: "RETURN_ALREADY_EXISTS"
+                message: "Для этого отправления уже создана активная заявка на возврат"
+                existing_return_id: "a1b2c3d4-5678-90ab-cdef-1234567890ab"
+            not_delivered:
+              value:
+                code: "SHIPMENT_NOT_DELIVERED"
+                message: "Возврат можно оформить только для доставленного отправления"
+                current_status: "IN_TRANSIT"
+            period_expired:
+              value:
+                code: "RETURN_PERIOD_EXPIRED"
+                message: "Срок оформления возврата истёк"
+    IdempotencyMismatch:
+      description: Тот же ключ идемпотентности с другим телом запроса
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            code: "IDEMPOTENCY_KEY_MISMATCH"
+            message: "Запрос с таким ключом уже обработан, но с другими данными"
+            original_return_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+    TooManyRequests:
+      description: Превышена квота запросов
+      headers:
+        Retry-After:
+          description: Секунд до следующей попытки
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            code: "RATE_LIMIT_EXCEEDED"
+            message: "Превышен предел запросов"
+            retry_after: 60
+    ServiceUnavailable:
+      description: |
+        Зависимость временно недоступна либо цепь разомкнута.
+        Различаются по машиночитаемому коду.
+      headers:
+        Retry-After:
+          description: Секунд до следующей попытки
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            circuit_open:
+              value:
+                code: "CIRCUIT_OPEN"
+                message: "Сервис проверки отправлений временно не вызывается; повторите позже"
+                retry_after: 10
+            dependency_down:
+              value:
+                code: "SHIPMENTS_API_UNAVAILABLE"
+                message: "Сервис проверки отправлений недоступен"
+                retry_after: 60
+
+    InternalError:
+      description: Внутренняя ошибка сервиса
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            code: "INTERNAL_SERVER_ERROR"
+            message: "Не удалось обработать запрос"
+
+  schemas:
+    CreateReturnRequest:
+      type: object
+      required: [original_shipment_barcode, return_point_id, reason]
+      properties:
+        original_shipment_barcode:
+          type: string
+          description: ШПИ исходного прямого отправления (14 цифр)
+          pattern: '^[0-9]{14}$'
+          example: "12345678901234"
+        return_point_id:
+          type: string
+          description: Идентификатор пункта выдачи для сдачи товара
+          example: "PVZ-MSK-001"
+        reason:
+          type: string
+          description: Причина возврата
+          enum: [DEFECT, WRONG_ITEM, CHANGED_MIND, OTHER]
+        comment:
+          type: string
+          description: Комментарий клиента (необязательно)
+          maxLength: 500
+
+    Return:
+      type: object
+      required: [return_id, status, created_at, deadline, drop_off_code]
+      properties:
+        return_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          description: Состояние возврата (модель З-6)
+          enum: [CREATED, ACCEPTED, DELIVERED, REJECTED, CANCELLED, EXPIRED]
+        created_at:
+          type: string
+          format: date-time
+        deadline:
+          type: string
+          format: date-time
+          description: Крайний срок сдачи товара на пункт выдачи
+        drop_off_code:
+          type: string
+          description: Код, который клиент предъявляет при сдаче товара
+          pattern: '^[0-9]{6}$'
+        estimated_cost:
+          type: number
+          format: float
+          nullable: true
+          description: |
+            Предварительная стоимость возврата. null, если тарификатор был
+            недоступен в момент создания - стоимость досчитает воркер.
+        client_id:
+          type: string
+          description: Клиент - владелец возврата (из токена, не из запроса)
+          readOnly: true
+
+    Error:
+      type: object
+      required: [code, message]
+      description: |
+        Трёхчастная модель ошибки (занятие 10): код протокола выбирает
+        поведение, машиночитаемый код различает причину и является частью
+        контракта, сообщение для человека - не часть контракта.
+      properties:
+        code:
+          type: string
+          description: Машиночитаемый код - часть контракта
+        message:
+          type: string
+          description: Сообщение для человека - не часть контракта
+        field:
+          type: string
+          description: Поле запроса, вызвавшее ошибку
+        retry_after:
+          type: integer
+          description: Секунд до повторной попытки
