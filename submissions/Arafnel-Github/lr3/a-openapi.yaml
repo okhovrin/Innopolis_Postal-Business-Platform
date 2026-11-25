@@ -1,0 +1,360 @@
+openapi: 3.0.3
+info:
+  title: API Управления возвратами (Почтовый бизнес-кабинет)
+  version: "1.0.0"
+  description: |
+    Публичный программный интерфейс для оформления, отслеживания и отмены возвратов B2B-клиентов
+    
+    Стратегия версионирования
+    Используется мажорное версионирование в URL-пути (`/v1/...`). Обратно совместимые изменения
+    (добавление необязательных полей в ответ или новых значений в перечисления) вносятся без смены версии
+    Ломающие изменения требуют выпуска новой версии (`/v2/`) с периодом параллельной поддержки 6 месяцев (учебное допущение)
+
+    Обеспечение принадлежности объектов (Область видимости)
+    Идентификатор клиента (`client_id`) извлекается на шлюзе из проверенного токена доступа и передаётся в сервис
+    Все SQL-запросы выполняются с обязательной фильтрацией по `client_id`
+    При запросе чужого `return_id` сервер возвращает `404 Not Found` (а не `403`), чтобы исключить перебор идентификаторов
+
+servers:
+  - url: https://postal-cabinet.example
+    description: Внешний продуктивный шлюз API (учебный адрес)
+
+security:
+  - BearerAuth: []
+
+paths:
+  /returns:
+    post:
+      summary: Оформить одиночный возврат (Операция О1)
+      description: |
+        Создаёт заявку на возврат по идентификатору исходного отправления (ШПИ)
+        Синхронно проверяет отправление в сервисе отправлений, рассчитывает тариф и удерживает сумму с баланса клиента
+        Проверка принадлежности: запрос к сервису отправлений выполняется с фильтром `WHERE barcode = :barcode AND client_id = :token_client_id`
+      operationId: createReturn
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReturnRequest'
+      responses:
+        '201':
+          description: Возврат успешно оформлен, средства удержаны с баланса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnObject'
+        '202':
+          description: Возврат принят на проверку (сумма превышает порог автоодобрения, ожидает подтверждения бухгалтера)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnObject'
+        '400':
+          description: Ошибка формата запроса, невалидный ШПИ или конфликт ключа идемпотентности (Вы неправильно попросили)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Токен доступа отсутствует, просрочен или имеет неверную подпись
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Недостаточно прав роли или превышен суточный лимит удержаний субаккаунта/интеграции
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Исходное отправление не найдено среди отправлений текущего клиента
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Бизнес-ошибка (недостаточно средств на балансе или статус отправления не допускает возврат)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Превышен лимит интенсивности запросов на шлюзе
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя непредвиденная ошибка сервиса возвратов (Мы не смогли)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Временная недоступность смежного сервиса или срабатывание размыкателя цепи
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: Получить перечень возвратов клиента (Операция О4)
+      description: |
+        Возвращает постраничный список возвратов с фильтрацией по статусу и периоду
+        Проверка принадлежности: выборка выполняется строго в границах клиента (`SELECT ... FROM returns WHERE client_id = :token_client_id`)
+      operationId: listReturns
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Фильтр по текущему состоянию возврата
+          schema:
+            $ref: '#/components/schemas/ReturnStatus'
+        - name: limit
+          in: query
+          required: false
+          description: Размер страницы (учебное допущение - по умолчанию 20, максимум 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Смещение от начала списка
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Успешное получение списка возвратов
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, items]
+                properties:
+                  total:
+                    type: integer
+                    example: 42
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReturnObject'
+        '400':
+          description: Некорректные параметры фильтрации или пагинации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Ошибка аутентификации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Превышен лимит запросов
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /returns/{return_id}/cancel:
+    post:
+      summary: Отменить оформленный возврат (Операция О3)
+      description: |
+        Переводит возврат в статус `CANCELLED` (до момента физического приёма посылки в отделении) 
+        и инициирует снятие удержания средств с возвратом на баланс клиента
+        
+        Проверка принадлежности: поиск и блокировка записи выполняются с учётом владельца и создателя:
+        `UPDATE returns SET status = 'CANCELLED' WHERE id = :return_id AND client_id = :token_client_id AND created_by = :token_subject_id`
+      operationId: cancelReturn
+      parameters:
+        - name: return_id
+          in: path
+          required: true
+          description: Уникальный идентификатор заявки на возврат
+          schema:
+            type: string
+            example: "ret_99321"
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 255
+                  example: "Получатель согласился забрать заказ"
+      responses:
+        '200':
+          description: Возврат успешно отменён, удержание снято
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnObject'
+        '400':
+          description: Отсутствует ключ идемпотентности или повторный ключ с другим телом запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Ошибка аутентификации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Нет прав на отмену (например, попытка интеграции отменить возврат, оформленный человеком)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Возврат с указанным ID не найден среди объектов клиента
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Недопустимый переход состояния (посылка уже принята в отделении или возврат уже отменён)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Сервис баланса или шина событий временно недоступны (разомкнута цепь)
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Токен доступа, полученный от внешнего сервиса идентификации по сценарию Client Credentials
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Уникальный ключ идемпотентности (UUID v4), генерируемый клиентом
+        Хранится 15 суток (учебное допущение). При повторе с тем же телом возвращается сохранённый ответ;
+        при повторе с изменённым телом - 400 Bad Request (IDEMPOTENCY_KEY_BODY_MISMATCH)
+      schema:
+        type: string
+        format: uuid
+        example: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+
+  headers:
+    RetryAfter:
+      description: Количество секунд, через которое клиенту разрешено повторить запрос
+      schema:
+        type: integer
+        example: 10
+
+  schemas:
+    ReturnStatus:
+      type: string
+      enum:
+        - CREATED
+        - PENDING_APPROVAL
+        - ACCEPTED_AT_OFFICE
+        - IN_TRANSIT
+        - DELIVERED_TO_SENDER
+        - CANCELLED
+      description: Жизненный цикл возвратного отправления
+
+    CreateReturnRequest:
+      type: object
+      required: [original_barcode, return_reason_code]
+      properties:
+        original_barcode:
+          type: string
+          pattern: '^\d{14}$'
+          description: 14-значный почтовый идентификатор исходного отправления (ШПИ)
+          example: "12345678901234"
+        return_reason_code:
+          type: string
+          enum: [UNCLAIMED, REJECTED_BY_RECIPIENT, DAMAGED, WRONG_ITEM]
+          description: Код причины возврата из справочника
+          example: "UNCLAIMED"
+        comment:
+          type: string
+          maxLength: 500
+          description: Необязательный комментарий для внутреннего учёта клиента
+          example: "Истёк срок хранения в ПВЗ"
+
+    ReturnObject:
+      type: object
+      required: [return_id, original_barcode, status, hold_amount_rub, created_at]
+      properties:
+        return_id:
+          type: string
+          example: "ret_99321"
+        original_barcode:
+          type: string
+          example: "12345678901234"
+        status:
+          $ref: '#/components/schemas/ReturnStatus'
+        hold_amount_rub:
+          type: number
+          format: float
+          description: Сумма удержанной платы за пересылку возврата в рублях
+          example: 320.50
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-11-25T14:30:00Z"
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      description: Трёхчастная модель ошибки (HTTP статус + машиночитаемый код + текст для разработчика)
+      properties:
+        code:
+          type: string
+          description: Машиночитаемый код ошибки (часть контракта, не меняется)
+          example: "CIRCUIT_BREAKER_OPEN"
+        message:
+          type: string
+          description: Пояснение для человека (не является частью контракта)
+          example: "Направление «возвраты» временно недоступно. Повторите запрос через 10 секунд"
+        retry_after:
+          type: integer
+          nullable: true
+          description: Рекомендуемая пауза до повтора в секундах (заполняется для временных ошибок 429 и 503)
+          example: 10
