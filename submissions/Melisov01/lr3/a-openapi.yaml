@@ -1,0 +1,634 @@
+openapi: 3.0.3
+info:
+  title: Управление возвратами — публичный API Почтового бизнес-кабинета (учебный проект)
+  version: "1.0.0"
+  description: |
+    Учебная спецификация ЛР-3. Три ключевые операции фичи «Управление возвратами»:
+    оформить возврат, запросить закрытие возврата, получить перечень возвратов клиента.
+
+    Состояния возврата взяты из машины состояний ЛР-2 (`lr2/b-states.md`).
+    Документация для интегратора — `b-docs.md`, матрица прав — `g-access.md`.
+
+    **Версионирование.**
+    * Мажорная версия — в пути (`/v1`). Её меняют только при ломающем изменении:
+      удалили или переименовали поле, поле стало обязательным, сменился смысл поля,
+      сменились путь или метод. Старая мажорная версия не выводится, пока у неё есть вызовы.
+    * Версия контракта — `info.version` по SemVer. Совместимые изменения
+      (новое необязательное поле запроса, новое поле ответа, новый код ошибки
+      в теле, новое значение в перечне `status`) повышают минорную часть и не меняют путь.
+    * Обязанности клиента, без которых совместимость не работает: игнорировать незнакомые
+      поля ответа; незнакомое значение `status` трактовать как «в обработке»;
+      незнакомый `error.code` обрабатывать по коду протокола и полю `retryable`.
+    * Новое обязательное поле запроса в `/v1` не вводится: оно добавляется
+      необязательным со значением по умолчанию, а обязательным становится только в `/v2`.
+
+    **Модель ошибок — три части.** Код протокола — для программы (повторять или нет);
+    `error.code` — стабильный машиночитаемый код, часть контракта; `error.message` —
+    для человека, не часть контракта. Поле `error.category` отделяет
+    «вы неправильно попросили» (`request`) от «мы не смогли» (`dependency`, `internal`)
+    и от «вызов не выполнялся, цепь разомкнута» (`circuit_open`).
+
+    **Область видимости.** Идентификатор клиента в запросах не передаётся ни в пути, ни в теле,
+    ни в параметрах. Сервер берёт его из токена и добавляет в каждый запрос к данным
+    (`client_id = <клиент из токена>`). Поэтому чужой возврат для клиента не существует:
+    ответ `404`, а не `403`.
+
+    Все числа в примерах — учебные допущения.
+servers:
+  - url: https://{apiHost}/v1
+    description: |
+      Внешний контур шлюза. Адрес выдаётся в разделе «Настройки интеграции»
+      кабинета отдельно для тестового и продуктивного контура.
+    variables:
+      apiHost:
+        default: api-host.example
+        description: Адрес из настроек интеграции (здесь — заглушка)
+security:
+  - clientCredentials: [returns:read, returns:write]
+tags:
+  - name: Возвраты
+    description: Оформление и отслеживание возвратов (обратной пересылки)
+paths:
+  /returns:
+    post:
+      tags: [Возвраты]
+      summary: Оформить возврат по исходному отправлению
+      operationId: createReturn
+      description: |
+        Ресурсный стиль: возврат — объект со своим жизненным циклом и идентификатором.
+
+        Операция **асинхронная**. Сервер синхронно проверяет запрос и то, что исходное отправление
+        принадлежит клиенту и допускает возврат. После этого сохраняет заявку и отвечает `202`.
+        Цену, удержание и регистрацию встречного отправления фоновый обработчик выполняет позже.
+        Ход оформления видно в `GET /returns?returnId=...`.
+
+        **Проверка принадлежности.** `clientId` берётся из токена. Исходное отправление ищется
+        запросом «отправление `sourceBarcode` среди отправлений клиента `clientId`» к сервису отправлений.
+        Если у клиента такого отправления нет, ответ `404 SOURCE_SHIPMENT_NOT_FOUND`, даже если
+        отправление существует у другого клиента. Субаккаунт видит только отправления своего
+        субаккаунта (атрибут `subaccountId` из токена). Новая заявка получает `clientId` и `subaccountId`
+        из токена; значение из тела не принимается: таких полей в схеме нет,
+        и лишние поля отклоняются (`additionalProperties: false`).
+
+        **Идемпотентность.** Заголовок `Idempotency-Key` обязателен, потому что операция
+        приводит к удержанию денег. Ключ действует в пределах клиента и этой операции
+        и хранится 24 часа (допущение). Повтор с тем же ключом и тем же телом возвращает
+        прежний ответ с тем же `returnId`. Тот же ключ с другим телом даёт `422 IDEMPOTENCY_KEY_REUSED`.
+        Если первый запрос с этим ключом ещё выполняется, ответ `409 IDEMPOTENCY_IN_PROGRESS`.
+        Второй барьер — бизнес-уникальность: на одно исходное отправление у клиента
+        допускается одна незакрытая заявка (`409 RETURN_ALREADY_EXISTS`). Он защищает и после
+        истечения ключа, и при оформлении через другой канал (веб-кабинет).
+
+        Ответы `503` (`CIRCUIT_OPEN`, `DEPENDENCY_UNAVAILABLE`) и `429` ключ не расходуют:
+        результат не сохраняется, и повтор с тем же ключом выполняется заново.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReturnRequest"
+            example:
+              sourceBarcode: "80080012345678"
+              reasonCode: RECIPIENT_REFUSED
+              clientReference: "order-2026-11-000123"
+      responses:
+        "202":
+          description: |
+            Заявка принята и сохранена, но ещё не выполнена. `status` = `queued`.
+            Повтор с тем же ключом и телом возвращает этот же ответ.
+          headers:
+            Location:
+              description: Где смотреть состояние — `/v1/returns?returnId=<returnId>`
+              schema: { type: string }
+            Retry-After:
+              description: Рекомендуемая пауза до первого опроса состояния, с
+              schema: { type: integer }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Return"
+              example:
+                returnId: "ret_01JD6T2Q8X4M"
+                sourceBarcode: "80080012345678"
+                returnBarcode: null
+                reasonCode: RECIPIENT_REFUSED
+                clientReference: "order-2026-11-000123"
+                status: queued
+                reconciling: false
+                createdAt: "2026-11-26T09:15:02Z"
+                updatedAt: "2026-11-26T09:15:02Z"
+                tracking: null
+                settlement:
+                  status: none
+                  amount: null
+                  currency: RUB
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: |
+            `SOURCE_SHIPMENT_NOT_FOUND` — у клиента нет такого исходного отправления.
+            Отправление другого клиента даёт тот же ответ. Повтор без исправления бесполезен.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: SOURCE_SHIPMENT_NOT_FOUND
+                  category: request
+                  message: Отправление 80080012345678 не найдено среди отправлений вашей организации
+                  retryable: false
+                  requestId: "c1f0a7e2-5b1d-4b0e-9f4e-2d8e6f1a9b33"
+        "409":
+          description: |
+            Конфликт. `RETURN_ALREADY_EXISTS` — по этому отправлению уже есть незакрытая заявка,
+            её номер в `details.existingReturnId`; новый ключ не поможет.
+            `IDEMPOTENCY_IN_PROGRESS` — первый запрос с этим ключом ещё выполняется;
+            повторить тот же запрос через `Retry-After` секунд.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                exists:
+                  value:
+                    error:
+                      code: RETURN_ALREADY_EXISTS
+                      category: request
+                      message: По отправлению уже оформлен возврат
+                      retryable: false
+                      details: { existingReturnId: "ret_01JD6T2Q8X4M" }
+                      requestId: "8d6a..."
+        "422":
+          description: |
+            Запрос понятен, но не может быть выполнен по правилам.
+            `RETURN_NOT_ALLOWED` — состояние исходного отправления не допускает возврат или срок истёк
+            (причина — в `details.reason`). `IDEMPOTENCY_KEY_REUSED` — ключ уже использован с другим телом.
+            Повторять без исправления бесполезно.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: IDEMPOTENCY_KEY_REUSED
+                  category: request
+                  message: Ключ уже использован с другим телом запроса
+                  retryable: false
+                  requestId: "1b2c..."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/DependencyOrCircuit" }
+    get:
+      tags: [Возвраты]
+      summary: Получить перечень возвратов клиента
+      operationId: listReturns
+      description: |
+        Ресурсный стиль: чтение коллекции. Отбор, постраничная выдача курсором.
+        Операция безопасна и идемпотентна по определению метода GET, ключ не нужен,
+        повторять можно сколько угодно.
+
+        **Проверка принадлежности.** Отбор по клиенту не параметр. Сервер всегда добавляет условие
+        `client_id = <клиент из токена>`, для субаккаунта — ещё `subaccount_id = <субаккаунт из токена>`.
+        Параметра `clientId` нет. Если `returnId` из отбора принадлежит другому клиенту,
+        ответ — пустой `items`, а не ошибка: существование чужого объекта не раскрывается.
+
+        Перечень читается из сохранённых данных сервиса возвратов: смежные системы
+        при чтении не вызываются. Поэтому кода `503 DEPENDENCY_UNAVAILABLE` здесь нет,
+        а трекинг и расчёт показываются как последние известные, с временем получения.
+        Поля `settlement.amount` видны только субъектам с правом `returns:money:read`.
+        Для остальных `amount` = `null` (см. `g-access.md`).
+      parameters:
+        - name: returnId
+          in: query
+          required: false
+          description: Отбор по одному или нескольким номерам заявок (через запятую, до 100)
+          schema: { type: string, example: "ret_01JD6T2Q8X4M" }
+        - name: sourceBarcode
+          in: query
+          required: false
+          description: Отбор по ШПИ исходного отправления
+          schema: { type: string, pattern: "^[0-9]{14}$" }
+        - name: status
+          in: query
+          required: false
+          description: Отбор по состояниям (через запятую)
+          schema: { type: string, example: "awaiting_acceptance,closing" }
+        - name: updatedFrom
+          in: query
+          required: false
+          description: Изменённые не раньше этого момента (UTC, ISO 8601) — для инкрементального опроса
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: cursor
+          in: query
+          required: false
+          description: Непрозрачный курсор из `nextCursor` предыдущей страницы
+          schema: { type: string }
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Страница возвратов клиента, упорядоченная по `updatedAt`, затем по `returnId`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReturnPage" }
+              example:
+                items:
+                  - returnId: "ret_01JD6T2Q8X4M"
+                    sourceBarcode: "80080012345678"
+                    returnBarcode: "80080098765432"
+                    reasonCode: RECIPIENT_REFUSED
+                    clientReference: "order-2026-11-000123"
+                    status: awaiting_acceptance
+                    reconciling: false
+                    createdAt: "2026-11-26T09:15:02Z"
+                    updatedAt: "2026-11-26T09:16:40Z"
+                    tracking:
+                      lastOperation: REGISTERED
+                      operationAt: "2026-11-26T09:16:31Z"
+                      receivedAt: "2026-11-26T09:16:40Z"
+                      stale: false
+                    settlement:
+                      status: held
+                      amount: 350.00
+                      currency: RUB
+                nextCursor: null
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /returns/{returnId}/close:
+    post:
+      tags: [Возвраты]
+      summary: Запросить закрытие возврата без приёма
+      operationId: closeReturn
+      description: |
+        Процедурный стиль: операция — это переход машины состояний ЛР-2
+        «Ожидает приёма → Проверяется закрытие» (`awaiting_acceptance → closing`), а не изменение полей.
+
+        Операция **асинхронная**. Сервер фиксирует запрос на закрытие и отвечает `202` с `status` = `closing`.
+        Исход определяет логистика: если отправление уже принято, возврат перейдёт в
+        `accepted_settlement_open`, если приём исключён — `releasing`, затем `closed_without_acceptance`
+        и освобождение удержания. Результат смотрят опросом перечня.
+
+        Разрешено только из `awaiting_acceptance`. Из `queued`, `holding`, `registering` закрыть нельзя:
+        в машине состояний ЛР-2 нет такого перехода (см. расхождение 1 в README).
+        Ответ `409 INVALID_STATE` с текущим состоянием; повторить, когда возврат станет `awaiting_acceptance`.
+
+        **Проверка принадлежности.** Заявка читается запросом `return_id = {returnId} AND client_id = <из токена>`
+        (для субаккаунта — и `subaccount_id`). Если такой нет, ответ `404 RETURN_NOT_FOUND`. Ответ
+        одинаков для несуществующего и чужого возврата.
+
+        **Идемпотентность.** Двойная. (1) По смыслу: это сообщение-состояние «установи: закрывается».
+        Повтор для возврата, уже находящегося в `closing`, `releasing` или `closed_without_acceptance`,
+        возвращает `202` с текущим состоянием и ничего не делает второй раз.
+        (2) По ключу: `Idempotency-Key` обязателен для единообразия с оформлением и потому, что переход
+        ведёт к движению денег (освобождению удержания). Хранится 24 часа. Тот же ключ с другим `returnId`
+        или телом — `422 IDEMPOTENCY_KEY_REUSED`.
+      parameters:
+        - name: returnId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseReturnRequest"
+            example:
+              comment: Клиент забрал отправление сам
+      responses:
+        "202":
+          description: Запрос на закрытие принят; исход определит логистика
+          headers:
+            Location:
+              schema: { type: string }
+              description: "`/v1/returns?returnId=<returnId>`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Return" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: "`RETURN_NOT_FOUND` — нет такого возврата среди возвратов клиента (чужой — тоже 404)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: |
+            `INVALID_STATE` — переход из текущего состояния невозможен; текущее — в `details.currentStatus`.
+            Из `accepted_settlement_open`, `completed`, `rejected` повтор бесполезен (точка невозврата
+            или конечное состояние). Из `queued`, `holding`, `registering` — повторить позже.
+            `IDEMPOTENCY_IN_PROGRESS` — как в оформлении.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: INVALID_STATE
+                  category: request
+                  message: Возврат уже принят отделением, закрытие невозможно
+                  retryable: false
+                  details: { currentStatus: accepted_settlement_open }
+                  requestId: "5e7f..."
+        "422":
+          description: "`IDEMPOTENCY_KEY_REUSED`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+components:
+  securitySchemes:
+    clientCredentials:
+      type: oauth2
+      description: |
+        OAuth 2.0 Client Credentials. Учётные данные выдаёт администратор аккаунта клиента
+        сервисной учётной записи интеграции (не сотруднику). Токен доступа — JWT,
+        передаётся как `Authorization: Bearer <token>`. Токена обновления нет:
+        по истечении запросите новый тем же способом. Адрес выдачи токена — внешнее
+        исполнение сервиса идентификации, указан в настройках интеграции.
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth-host.example/oauth2/token
+          scopes:
+            returns:read: Чтение возвратов своего клиента
+            returns:write: Оформление и закрытие возвратов своего клиента
+            returns:money:read: Видеть суммы удержаний и списаний
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Ключ идемпотентности: UUID, который клиент генерирует на одно намерение (один возврат)
+        и сохраняет до получения ответа. При повторе после таймаута или обрыва
+        передаётся тот же ключ. Область действия — клиент + операция. Хранится 24 часа (допущение).
+      schema:
+        type: string
+        format: uuid
+        example: "7d3c9f0e-2a41-4c8b-9a6e-1f2b3c4d5e6f"
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      description: Идентификатор запроса для поддержки; если не передан, сервер создаёт свой и возвращает в `error.requestId`
+      schema: { type: string, maxLength: 64 }
+  headers:
+    RetryAfter:
+      description: Через сколько секунд повторить запрос
+      schema: { type: integer, minimum: 1 }
+  responses:
+    ValidationError:
+      description: "`VALIDATION_FAILED` — тело или параметры не соответствуют схеме; поля — в `details.fields`. Повторять только после исправления."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error:
+              code: VALIDATION_FAILED
+              category: request
+              message: "sourceBarcode: нужно 14 цифр"
+              retryable: false
+              details:
+                fields: [{ field: sourceBarcode, issue: pattern }]
+              requestId: "a9e1..."
+    Unauthorized:
+      description: "`TOKEN_MISSING`, `TOKEN_INVALID` или `TOKEN_EXPIRED`. Получите новый токен и повторите один раз."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: |
+        `SCOPE_MISSING` — у токена нет нужной области действия (например, `returns:write`).
+        `SUBACCOUNT_LIMIT_EXCEEDED` — исчерпан лимит субаккаунта на сумму удержаний (атрибутное правило).
+        Повтор без изменения прав бесполезен.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: |
+        `RATE_LIMITED` — превышен предел частоты или суточная квота шлюза.
+        Повторить через `Retry-After` секунд. Ключ идемпотентности не израсходован.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InternalError:
+      description: |
+        `INTERNAL_ERROR` — сбой в самом кабинете, исход неизвестен.
+        Для POST повторите **с тем же** `Idempotency-Key` через паузу 1, 2, 4… с (не больше 5 попыток):
+        если заявка была создана, вернётся она же.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    DependencyOrCircuit:
+      description: |
+        Временная недоступность. Различаются по `error.code` и `error.category`:
+
+        * `CIRCUIT_OPEN` (`category: circuit_open`) — цепь к сервису отправлений разомкнута,
+          **вызов не выполнялся**. `Retry-After` и `error.retryAfterSeconds` — точное время до
+          пробного запроса. Повторите с тем же ключом не раньше этого момента.
+        * `DEPENDENCY_UNAVAILABLE` (`category: dependency`) — вызов сервиса отправлений выполнен
+          и не удался (отказ или таймаут). `Retry-After` — рекомендация, а не обещание.
+          Повторите с тем же ключом с растущей паузой.
+
+        В обоих случаях заявка не создана, ключ не израсходован.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            circuitOpen:
+              summary: Цепь разомкнута — вызова не было
+              value:
+                error:
+                  code: CIRCUIT_OPEN
+                  category: circuit_open
+                  message: Проверка отправлений временно приостановлена; повторите через 7 с
+                  retryable: true
+                  retryAfterSeconds: 7
+                  dependency: shipments
+                  requestId: "f00d..."
+            dependencyUnavailable:
+              summary: Сервис отправлений не ответил
+              value:
+                error:
+                  code: DEPENDENCY_UNAVAILABLE
+                  category: dependency
+                  message: Сервис отправлений не ответил за 3 с
+                  retryable: true
+                  retryAfterSeconds: 5
+                  dependency: shipments
+                  requestId: "beef..."
+  schemas:
+    CreateReturnRequest:
+      type: object
+      additionalProperties: false
+      required: [sourceBarcode, reasonCode]
+      properties:
+        sourceBarcode:
+          type: string
+          pattern: "^[0-9]{14}$"
+          description: ШПИ исходного отправления (14 цифр)
+        reasonCode:
+          $ref: "#/components/schemas/ReasonCode"
+        clientReference:
+          type: string
+          maxLength: 64
+          description: Номер в системе клиента (заказ, обращение). Сервер его не интерпретирует.
+    CloseReturnRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        comment:
+          type: string
+          maxLength: 500
+          description: Комментарий для журнала аудита; на исход не влияет
+    ReasonCode:
+      type: string
+      description: |
+        Причина возврата. Перечень может расширяться в минорной версии;
+        незнакомое значение в ответе клиент показывает как «другая причина».
+      enum: [RECIPIENT_REFUSED, NOT_COLLECTED, WRONG_ADDRESS, DAMAGED, OTHER]
+    ReturnStatus:
+      type: string
+      description: |
+        Состояние заявки по машине состояний ЛР-2:
+        `queued` — ожидает проверки; `holding` — ожидает удержания; `registering` — регистрация встречного;
+        `awaiting_acceptance` — ожидает приёма (есть `returnBarcode`); `closing` — проверяется закрытие;
+        `accepted_settlement_open` — принято, расчёт открыт (точка невозврата); `releasing` — освобождается удержание;
+        `completed` — завершена; `rejected` — отклонена; `closed_without_acceptance` — закрыта без приёма.
+        Конечные: `completed`, `rejected`, `closed_without_acceptance`.
+        Перечень может расширяться; незнакомое значение трактуется как «в обработке».
+      enum:
+        - queued
+        - holding
+        - registering
+        - awaiting_acceptance
+        - closing
+        - accepted_settlement_open
+        - releasing
+        - completed
+        - rejected
+        - closed_without_acceptance
+    Return:
+      type: object
+      required: [returnId, sourceBarcode, reasonCode, status, reconciling, createdAt, updatedAt, settlement]
+      properties:
+        returnId: { type: string, description: "Номер заявки; выдаёт сервер" }
+        sourceBarcode: { type: string }
+        returnBarcode:
+          type: string
+          nullable: true
+          description: ШПИ встречного отправления; появляется в `awaiting_acceptance`
+        reasonCode: { $ref: "#/components/schemas/ReasonCode" }
+        clientReference: { type: string, nullable: true }
+        status: { $ref: "#/components/schemas/ReturnStatus" }
+        rejection:
+          type: object
+          nullable: true
+          description: Заполнено, если `status` = `rejected`
+          properties:
+            code:
+              type: string
+              description: "Например `RETURN_PERIOD_EXPIRED`, `INSUFFICIENT_FUNDS`"
+            message: { type: string }
+        reconciling:
+          type: boolean
+          description: |
+            `true` — исход внешней операции (регистрации, удержания, закрытия) потерян и сверяется.
+            Состояние не изменится, пока сверка не закончится; повторно оформлять не нужно.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        tracking:
+          type: object
+          nullable: true
+          description: Последнее известное почтовое состояние встречного отправления
+          properties:
+            lastOperation: { type: string, description: "Например `REGISTERED`, `ACCEPTED`, `DELIVERED`" }
+            operationAt: { type: string, format: date-time, description: Когда операция произошла в почтовой сети }
+            receivedAt: { type: string, format: date-time, description: Когда кабинет о ней узнал }
+            stale:
+              type: boolean
+              description: "`true` — свежих данных трекинга давно нет; это не значит, что приёма не было"
+        settlement:
+          type: object
+          required: [status, currency]
+          properties:
+            status:
+              type: string
+              enum: [none, held, charged, released, open]
+              description: |
+                `none` — денег не трогали; `held` — удержано; `charged` — списано окончательно;
+                `released` — удержание освобождено; `open` — принято, расчёт не завершён.
+            amount:
+              type: number
+              nullable: true
+              description: Сумма, руб.; `null` без права `returns:money:read` или пока цена не известна
+            currency: { type: string, example: RUB }
+    ReturnPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Return" }
+        nextCursor:
+          type: string
+          nullable: true
+          description: "`null` — страниц больше нет"
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, category, message, retryable, requestId]
+          properties:
+            code:
+              type: string
+              description: |
+                Машиночитаемый код — часть контракта, стабилен. Перечень может расширяться.
+                Известные: VALIDATION_FAILED, TOKEN_MISSING, TOKEN_INVALID, TOKEN_EXPIRED, SCOPE_MISSING,
+                SUBACCOUNT_LIMIT_EXCEEDED, SOURCE_SHIPMENT_NOT_FOUND, RETURN_NOT_FOUND, RETURN_ALREADY_EXISTS,
+                RETURN_NOT_ALLOWED, INVALID_STATE, IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_IN_PROGRESS,
+                RATE_LIMITED, CIRCUIT_OPEN, DEPENDENCY_UNAVAILABLE, INTERNAL_ERROR.
+            category:
+              type: string
+              enum: [request, auth, rate_limit, dependency, circuit_open, internal]
+              description: |
+                Кому адресована ошибка: `request`/`auth` — «вы неправильно попросили»;
+                `dependency` — смежная система не смогла; `circuit_open` — вызов не выполнялся;
+                `rate_limit` — превышен предел; `internal` — сбой кабинета.
+            message:
+              type: string
+              description: Для человека; формулировка может меняться, не разбирайте её программой
+            retryable:
+              type: boolean
+              description: Имеет ли смысл повтор того же запроса без изменений
+            retryAfterSeconds:
+              type: integer
+              nullable: true
+              description: Дублирует заголовок `Retry-After` (для клиентов, которые не читают заголовки)
+            dependency:
+              type: string
+              nullable: true
+              description: Функция смежной системы, если причина в ней (`shipments`)
+            details:
+              type: object
+              additionalProperties: true
+            requestId:
+              type: string
+              description: Передайте в поддержку при обращении
