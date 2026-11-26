@@ -30,7 +30,7 @@
 
 ## Диаграмма контейнеров C4
 
-HTTP/JSON перенесён со схемы З-5. Протоколы БД и подключение тарификатора не подтверждены материалами; технология не выдумывается. Взаимодействия с RabbitMQ обозначены AMQP как проектное допущение. Каждая связь подписана действием по направлению.
+HTTP/JSON перенесён со схемы З-5. Для API Gateway указан HTTP, для работы с БД - SQL. Взаимодействия с RabbitMQ обозначены AMQP как проектное допущение. Каждая связь подписана действием по направлению.
 
 ```mermaid
 C4Container
@@ -44,22 +44,22 @@ C4Container
     System_Boundary(portal, "Почтовый бизнес-кабинет") {
         Container(ui, "Микрофронтенд ЛК отправителя", "React", "Форма, список и причины возвратов")
         Container(bff, "BFF", "web-client", "Данные экрана возвратов")
-        Container(gateway, "API Gateway", "[?]", "Маршруты методов возврата")
+        Container(gateway, "API Gateway", "HTTP", "Маршруты методов возврата")
         Container(api, "REST API", "Java", "Возвраты, задания, outbox и воркер передачи")
-        ContainerDb(db, "Хранилище REST API", "[?]", "Состояния, задания, ключи и outbox")
+        ContainerDb(db, "Хранилище REST API", "SQL", "Состояния, задания, ключи и outbox")
         Container(tracking, "Сервис отслеживания РПО", "[?]", "Почтовый статус и приём")
         Container(balance, "Онлайн Баланс", "[?]", "Авторитетные денежные операции")
         ContainerQueue(mq, "RabbitMQ", "RabbitMQ", "Событийные уведомления")
         Container(metrics, "Сервис сбора показателей", "[?]", "Приём событий и ELT")
-        ContainerDb(raw, "raw_return_events", "[?]", "Исходные события целиком")
-        ContainerDb(warehouse, "Аналитическое хранилище", "[?]", "fact_returns и агрегаты")
+        ContainerDb(raw, "raw_return_events", "SQL", "Исходные события целиком")
+        ContainerDb(warehouse, "Аналитическое хранилище", "SQL", "fact_returns и агрегаты")
     }
     Rel(employee, ui, "Открывает экран", "HTTP/HTML")
     Rel(client, gateway, "Вызывает методы возврата", "HTTP/JSON")
     Rel(ui, bff, "Отправляет заявку, читает список", "HTTP/JSON")
     Rel(bff, api, "Создаёт возврат, запрашивает данные", "HTTP/JSON")
     Rel(gateway, api, "Передаёт разрешённый запрос", "HTTP/JSON")
-    Rel(api, db, "Сохраняет заявку, задание и outbox", "[?]")
+    Rel(api, db, "Сохраняет заявку, задание и outbox", "SQL")
     Rel(api, tariff, "Запрашивает цену", "[?]")
     Rel(api, tracking, "Запрашивает статус и причину", "HTTP/JSON")
     Rel(api, balance, "Удерживает, списывает, освобождает и сверяет", "HTTP/JSON")
@@ -68,9 +68,9 @@ C4Container
     Rel(balance, finance, "Запрашивает или сверяет денежную операцию", "[?]")
     Rel(api, mq, "Публикует ReturnRegistered из outbox", "AMQP, допущение")
     Rel(mq, metrics, "Доставляет событие", "AMQP, допущение")
-    Rel(metrics, raw, "Сохраняет исходное событие", "[?]")
-    Rel(metrics, warehouse, "Строит факты и агрегаты из raw", "[?]")
-    Rel(metrics, raw, "Читает историю для пересчёта", "[?]")
+    Rel(metrics, raw, "Сохраняет исходное событие", "SQL")
+    Rel(metrics, warehouse, "Строит факты и агрегаты из raw", "SQL")
+    Rel(metrics, raw, "Читает историю для пересчёта", "SQL")
 ```
 
 Воркер является частью контейнера REST API, а не дополнительным контейнером. Подтверждённый приём читается REST API через сервис отслеживания; после этого REST API инициирует DEBIT в Онлайн Балансе. Отчёт строится в аналитическом контуре, который не блокирует оформление.
