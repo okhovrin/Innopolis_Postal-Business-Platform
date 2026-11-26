@@ -1,0 +1,398 @@
+openapi: 3.0.3
+info:
+  title: Управление возвратами
+  version: 1.0.0
+  description: >-
+    API на основе ЛР-2. Адрес сервера условный.
+    Версия контракта указана в пути /v1. Необязательные поля ответа можно
+    добавлять, клиент игнорирует неизвестные поля. Переименование, изменение
+    смысла и новые обязательные поля запроса требуют /v2.
+    Все операции проверяют актуальные права, api_enabled и связь субъекта
+    с клиентом.
+    Запросы с неверными параметрами возвращают 400, ошибки строк задания
+    возвращаются отдельно после 202.
+servers:
+  - url: https://api.example.test
+    description: Условный внешний контур, адрес выдаётся при подключении
+security:
+  - BearerAuth: []
+paths:
+  /v1/return-jobs:
+    post:
+      operationId: createReturnJob
+      summary: Принять список для оформления возвратов
+      description: >-
+        Один возврат передаётся как список из одной строки. Scope returns:write.
+        До приёма проверяются токен, права, конверт и размер.
+        Создаются задание и записи строк с created_by из субъекта токена.
+        Воркер ищет каждое shipment_id только среди отправлений client_id
+        из контекста. Чужое и отсутствующее отправление дают отказ
+        SHIPMENT_NOT_FOUND. Перед HOLD повторно
+        проверяются право оформления, лимит субаккаунта и авторитетный остаток.
+        202 выдаётся после атомарного сохранения задания, тела, ключа и ответа.
+        Ключ: client_id + createReturnJob + Idempotency-Key, хранится 7 суток.
+        То же тело возвращает прежний 202
+        и job_id, другое тело - 409.
+        Недоступность смежной системы после приёма отражается в строке задания,
+        не превращает уже принятый запрос в HTTP 503.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJob'
+            example:
+              items:
+                - shipment_id: s101
+                  reason_code: CUSTOMER_REQUEST
+      responses:
+        '202':
+          description: Принято или найдено по тому же ключу, возвраты ещё не оформлены
+          headers:
+            Location:
+              description: Относительный адрес чтения задания
+              schema:
+                type: string
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedJob'
+              example:
+                job_id: j101
+                status: RECEIVED
+                status_url: /v1/return-jobs/j101
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: JOB_TOO_LARGE - более 1000 строк или 5 МиБ, задание не принято
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/return-jobs/{job_id}:
+    get:
+      operationId: getReturnJob
+      summary: Получить состояние и построчный результат задания
+      description: >-
+        Scope returns:read. Читаем job_id среди заданий своего client_id,
+        для оператора дополнительно created_by = subject_id.
+        Для администратора, бухгалтера и аудитора доступны задания своего клиента.
+        Чужое, недоступное по области видимости и отсутствующее задание - 404.
+        Все строки и связанные возвраты выбираются через найденное задание.
+        GET не меняет данные, идемпотентен, ключ не нужен. Ответ может меняться
+        по мере обработки. Состояние возврата и почтовый статус - текущий
+        локальный снимок на state_updated_at и postal_updated_at соответственно.
+        Исход outcome остаётся результатом оформления.
+        После отмены или нового почтового события снова читают этот же адрес.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Текущее состояние задания, включая частичный успех и ожидание
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/returns/{return_id}/cancel:
+    post:
+      operationId: cancelReturn
+      summary: Отменить возврат до начала передачи
+      description: >-
+        Scope returns:cancel. Читаем return_id среди возвратов своего client_id,
+        для оператора дополнительно created_by = subject_id. Отсутствующий
+        или недоступный возврат - 404. Администратор действует в своём клиенте.
+        NEW -> CANCELLED, READY -> CANCELLING с задачей RELEASE в outbox.
+        Проверка состояния, изменение и задача фиксируются одной транзакцией,
+        обновление READY исключает гонку с воркером передачи.
+        CANCELLING и CANCELLED возвращают текущий результат без новой задачи.
+        В результате строки отмена до регистрации даёт REJECTED с кодом
+        CANCELLED_BY_CLIENT, это итог строки, состояние заявки - CANCELLED.
+        WAIT_HOLD, SENDING, REGISTERED и REJECTED - 409 INVALID_STATE;
+        MANUAL - 409 MANUAL_REVIEW_REQUIRED.
+        Тело не передаётся. Ключ: client_id + cancelReturn + return_id +
+        Idempotency-Key. Ключ и принятое намерение сохраняются атомарно,
+        срок - 7 суток.
+      parameters:
+        - name: return_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Отмена завершена, состояние CANCELLED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelResult'
+        '202':
+          description: Отмена принята, CANCELLING, освобождение пока не подтверждено
+          headers:
+            Location:
+              description: Адрес исходного задания для проверки состояния возврата
+              schema:
+                type: string
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Bearer. Подключение приложения через Client Credentials
+        описано в docs/integration.md. Связь subject_id, client_id, права и
+        api_enabled проверяются сервером при каждом запросе.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID для нового намерения, при повторе сохранить ключ и тело
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  headers:
+    RetryAfter:
+      description: Через сколько секунд можно повторить запрос или опросить результат
+      schema:
+        type: integer
+        minimum: 1
+        example: 5
+  responses:
+    BadRequest:
+      description: INVALID_REQUEST - неверный конверт, параметры, лишнее тело отмены или нет ключа
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: UNAUTHENTICATED - токен отсутствует, недействителен, отозван или истёк
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: ACCESS_DENIED - нет актуального права, связи с клиентом или api_enabled
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: NOT_FOUND - объект не найден в разрешённом множестве, в том числе при повторе ключа
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: >-
+        IDEMPOTENCY_CONFLICT - тот же ключ с другим телом;
+        INVALID_STATE - отмена запрещена в текущем состоянии;
+        MANUAL_REVIEW_REQUIRED - требуется ручной разбор.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: RATE_LIMITED - исчерпана квота, повторить через Retry-After
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unavailable:
+      description: >-
+        SERVICE_UNAVAILABLE - нельзя надёжно принять команду или прочитать данные;
+        AUTHORIZATION_UNAVAILABLE - невозможно проверить текущие права.
+        Повтор с прежним ключом и телом через Retry-After.
+        CIRCUIT_OPEN и DEPENDENCY_UNAVAILABLE относятся к отложенному вызову
+        API отправлений и видны в results[].pending_error при HTTP 200 чтения.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    CreateJob:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          description: >-
+            Лимит 1000 строк - допущение ЛР-2. Элемент намеренно не ограничен
+            схемой: тип и поля строки проверяются после приёма. Нужны строковые
+            shipment_id, reason_code и положительное целое weight_grams, если задано.
+            Коды причин: CUSTOMER_REQUEST или WRONG_ADDRESS.
+            Ошибочная строка получает INTERVENTION с INVALID_ROW.
+          items: {}
+    AcceptedJob:
+      type: object
+      required: [job_id, status, status_url]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [RECEIVED]
+        status_url:
+          type: string
+    Job:
+      type: object
+      required: [job_id, status, results]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [RECEIVED, PROCESSING, COMPLETED, FAILED]
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/RowResult'
+        error:
+          $ref: '#/components/schemas/Error'
+    RowResult:
+      type: object
+      required: [row_no]
+      description: >-
+        Пока строка исполняется, outcome отсутствует. Итог outcome после
+        оформления не переписывается при почтовом событии или отмене.
+        Текущее состояние заявки передаётся отдельно в state.
+        В COMPLETED у каждой строки есть outcome. При FAILED results содержит
+        уже известные результаты, error объясняет остановку задания.
+      properties:
+        row_no:
+          type: integer
+          minimum: 1
+        shipment_id:
+          type: string
+          description: Только идентификатор из входа, без раскрытия чужого отправления
+        return_id:
+          type: string
+          description: Локальный идентификатор после сохранения заявки, ещё до HOLD
+        state:
+          $ref: '#/components/schemas/ReturnState'
+        state_updated_at:
+          type: string
+          format: date-time
+        outcome:
+          type: string
+          enum: [PROCESSED, REJECTED, INTERVENTION]
+        error:
+          $ref: '#/components/schemas/Error'
+        pending_error:
+          $ref: '#/components/schemas/Error'
+        next_attempt_at:
+          type: string
+          format: date-time
+        postal_status:
+          type: string
+          description: Последний подтверждённый почтовый статус, если известен
+        postal_updated_at:
+          type: string
+          format: date-time
+    ReturnState:
+      type: string
+      enum: [NEW, WAIT_HOLD, READY, SENDING, REGISTERED, CANCELLING, CANCELLED, REJECTED, MANUAL]
+    CancelResult:
+      type: object
+      required: [return_id, state, status_url]
+      properties:
+        return_id:
+          type: string
+        state:
+          type: string
+          enum: [CANCELLING, CANCELLED]
+        status_url:
+          type: string
+    Error:
+      type: object
+      required: [code, message, details]
+      description: >-
+        Три части: машинный код, пояснение человеку, детали полей.
+        Для ошибки без привязки к полю details пустой. Временная ошибка может
+        содержать retry_after_seconds. В строке задания это задержка на момент
+        наблюдения, фактическая следующая попытка указана в next_attempt_at.
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+            required: [field, code]
+            properties:
+              field:
+                type: string
+              code:
+                type: string
+              message:
+                type: string
+        retry_after_seconds:
+          type: integer
+          minimum: 1
