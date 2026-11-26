@@ -1,0 +1,657 @@
+openapi: 3.0.3
+info:
+  title: Управление возвратами - ММСБ
+  version: 1.0.0
+  description: Учебный проект ЛР-3. Все новые параметры и правила - проектные решения, не описание действующего
+    API.
+servers:
+- url: https://api.example.invalid
+  description: Условный адрес; фактический внешний шлюз выдаётся при подключении, не установлен.
+security:
+- BearerAuth: []
+paths:
+  /1.0/returns:
+    post:
+      operationId: createReturn
+      summary: Оформить возврат
+      description: Сначала проверка токена, связи с клиентом и актуальных полномочий; client_id определяется
+        сервером. Исходное отправление читается по originalBarcode AND client_id; оператор и интеграция ограничены
+        своим субаккаунтом. Возврат создаётся с серверными client_id, subaccount_id и subject_id. Проверка
+        лимита и удержание атомарны на стороне баланса. Ключ обязателен; повтор возвращает исходный 201, другое
+        тело - 422. Временные сбои не фиксируются как конечный результат; незавершённая команда восстанавливается
+        по ключу. Проверяются причина возврата, отсутствие активной заявки, статус исходного отправления и
+        срок возврата. При подтверждённом удержании создаются SUBMITTED и задача return_outbox в одной локальной
+        транзакции; регистрация ШПИ отложена. Воркер повторяет временные отказы до 24 ч по З-8; постоянный
+        отказ или дедлайн после сверки приводит к REJECTED и освобождению удержания.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description: 'Ключ на логическую команду; хранение результата 24 ч. Область: клиент, субъект, операция;
+          сравниваются путь и тело.'
+      responses:
+        '400':
+          description: VALIDATION_ERROR / INVALID_BARCODE - Исправить запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Исправить запрос
+                traceId: example-trace
+        '401':
+          description: UNAUTHORIZED - Получить новый токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UNAUTHORIZED
+                message: Получить новый токен
+                traceId: example-trace
+        '403':
+          description: FORBIDDEN - Получить право; не повторять автоматически
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: FORBIDDEN
+                message: Получить право; не повторять автоматически
+                traceId: example-trace
+        '429':
+          description: RATE_LIMIT_EXCEEDED - Повторить после Retry-After
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                message: Повторить после Retry-After
+                traceId: example-trace
+          headers:
+            Retry-After:
+              description: Секунды до допустимой следующей попытки
+              schema:
+                type: integer
+                minimum: 0
+        '500':
+          description: INTERNAL_ERROR - Повторить с тем же ключом после паузы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: INTERNAL_ERROR
+                message: Повторить с тем же ключом после паузы
+                traceId: example-trace
+        '404':
+          description: SHIPMENT_NOT_FOUND - Исходное отправление отсутствует в доступной области
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: SHIPMENT_NOT_FOUND
+                message: Исходное отправление отсутствует в доступной области
+                traceId: example-trace
+        '422':
+          description: IDEMPOTENCY_KEY_MISMATCH - Не повторять с изменённым телом под тем же ключом
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: IDEMPOTENCY_KEY_MISMATCH
+                message: Не повторять с изменённым телом под тем же ключом
+                traceId: example-trace
+        '502':
+          description: UPSTREAM_UNAVAILABLE - Повторить с тем же ключом после паузы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UPSTREAM_UNAVAILABLE
+                message: Повторить с тем же ключом после паузы
+                traceId: example-trace
+        '503':
+          description: CIRCUIT_OPEN / DEPENDENCY_UNAVAILABLE - Повторить не раньше Retry-After; результат незавершённой
+            команды не считается окончательным
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: CIRCUIT_OPEN
+                message: Повторить не раньше Retry-After; результат незавершённой команды не считается окончательным
+                traceId: example-trace
+          headers:
+            Retry-After:
+              description: Секунды до допустимой следующей попытки
+              schema:
+                type: integer
+                minimum: 0
+        '504':
+          description: UPSTREAM_TIMEOUT - Повторить с тем же ключом после паузы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UPSTREAM_TIMEOUT
+                message: Повторить с тем же ключом после паузы
+                traceId: example-trace
+        '201':
+          description: Возврат оформлен (SUBMITTED); удержание подтверждено, задача регистрации сохранена,
+            ШПИ ещё может отсутствовать.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Return'
+        '409':
+          description: RETURN_ALREADY_EXISTS / INSUFFICIENT_FUNDS / LIMIT_EXCEEDED - Проверить существующий
+            возврат или доступный баланс/лимит; не повторять автоматически / SHIPMENT_ALREADY_DELIVERED / RETURN_WINDOW_EXPIRED
+            - исходное отправление вручено или срок возврата истёк; повторять бессмысленно.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: RETURN_ALREADY_EXISTS
+                message: Проверить существующий возврат или доступный баланс/лимит; не повторять автоматически
+                traceId: example-trace
+      x-versioning: Совместимые необязательные дополнения в 1.0; изменение смысла, обязательности, пути или
+        метода - новый контракт /2.0, старый сохраняется.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReturn'
+    get:
+      operationId: listReturns
+      summary: Получить перечень возвратов
+      description: Сначала проверка токена, связи с клиентом и актуальных полномочий; client_id определяется
+        сервером. SELECT с client_id; оператор дополнительно subaccount_id, интеграция creator_integration_id.
+        Фильтры только сужают выборку. Курсор связан с субъектом, клиентом и фильтрами. GET безопасен и идемпотентен,
+        ключ не нужен; данные могут изменяться между запросами. Возвращаются причина возврата, время последнего
+        подтверждения состояния и финансовая фаза; при задержке трекинга данные могут устареть.
+      parameters:
+      - name: state
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ReturnState'
+        description: ''
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        description: ''
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Непрозрачный курсор из предыдущего ответа
+      responses:
+        '400':
+          description: VALIDATION_ERROR - Исправить запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Исправить запрос
+                traceId: example-trace
+        '401':
+          description: UNAUTHORIZED - Получить новый токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UNAUTHORIZED
+                message: Получить новый токен
+                traceId: example-trace
+        '403':
+          description: FORBIDDEN - Получить право; не повторять автоматически
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: FORBIDDEN
+                message: Получить право; не повторять автоматически
+                traceId: example-trace
+        '429':
+          description: RATE_LIMIT_EXCEEDED - Повторить после Retry-After
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                message: Повторить после Retry-After
+                traceId: example-trace
+          headers:
+            Retry-After:
+              description: Секунды до допустимой следующей попытки
+              schema:
+                type: integer
+                minimum: 0
+        '500':
+          description: INTERNAL_ERROR - Повторить GET после паузы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: INTERNAL_ERROR
+                message: Повторить GET после паузы
+                traceId: example-trace
+        '200':
+          description: Страница доступных возвратов; пустой список допустим
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnPage'
+        '503':
+          description: DEPENDENCY_UNAVAILABLE - Не удалось проверить актуальные права; повторить после Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: DEPENDENCY_UNAVAILABLE
+                message: Проверка прав временно недоступна
+                traceId: example-trace
+          headers:
+            Retry-After:
+              description: Секунды до допустимой следующей попытки
+              schema:
+                type: integer
+                minimum: 0
+      x-versioning: Совместимые необязательные дополнения в 1.0; изменение смысла, обязательности, пути или
+        метода - новый контракт /2.0, старый сохраняется.
+  /1.0/returns/{returnId}/cancel:
+    post:
+      operationId: cancelReturn
+      summary: Отменить заявку на возврат
+      description: Сначала проверка токена, связи с клиентом и актуальных полномочий; client_id определяется
+        сервером. SELECT FOR UPDATE по return_id AND client_id, дополнительно область субаккаунта оператора
+        или creator_integration_id интеграции. Допустимы DRAFT, SUBMITTED до начала регистрации, REGISTERED.
+        При SUBMITTED отмена атомарно останавливает ожидающую задачу return_outbox; выполняющаяся регистрация
+        или неопределённый исход - 409 REGISTRATION_IN_PROGRESS. После завершения регистрации проверяется состояние.
+        При REGISTERED снять регистрацию, затем освободить удержание; при сбое не подтверждать отмену, сверить
+        незавершённые эффекты перед повтором. Повтор CANCELLED возвращает сохранённый результат первоначальной
+        отмены, включая reason; ключ рекомендован, другой путь/тело под тем же ключом - 422.
+      parameters:
+      - name: returnId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Идентификатор заявки
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description: 'Ключ на логическую команду; хранение результата 24 ч. Область: клиент, субъект, операция;
+          сравниваются путь и тело.'
+      responses:
+        '400':
+          description: VALIDATION_ERROR - Исправить запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Исправить запрос
+                traceId: example-trace
+        '401':
+          description: UNAUTHORIZED - Получить новый токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UNAUTHORIZED
+                message: Получить новый токен
+                traceId: example-trace
+        '403':
+          description: FORBIDDEN - Получить право; не повторять автоматически
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: FORBIDDEN
+                message: Получить право; не повторять автоматически
+                traceId: example-trace
+        '429':
+          description: RATE_LIMIT_EXCEEDED - Повторить после Retry-After
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: RATE_LIMIT_EXCEEDED
+                message: Повторить после Retry-After
+                traceId: example-trace
+          headers:
+            Retry-After:
+              description: Секунды до допустимой следующей попытки
+              schema:
+                type: integer
+                minimum: 0
+        '500':
+          description: INTERNAL_ERROR - Повторить с тем же ключом после паузы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: INTERNAL_ERROR
+                message: Повторить с тем же ключом после паузы
+                traceId: example-trace
+        '404':
+          description: RETURN_NOT_FOUND - Не найден в доступной области; не повторять
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: RETURN_NOT_FOUND
+                message: Не найден в доступной области; не повторять
+                traceId: example-trace
+        '409':
+          description: RETURN_ALREADY_IN_TRANSIT / RETURN_CLOSED - Переход запрещён; не повторять / REGISTRATION_IN_PROGRESS
+            - проверить состояние после завершения регистрации; currentState обязателен при конфликте отмены.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Error'
+                - type: object
+                  required:
+                  - currentState
+              example:
+                code: RETURN_ALREADY_IN_TRANSIT
+                message: Переход запрещён; не повторять
+                traceId: example-trace
+                currentState: IN_TRANSIT
+        '422':
+          description: IDEMPOTENCY_KEY_MISMATCH - Не повторять с изменённым телом под тем же ключом
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: IDEMPOTENCY_KEY_MISMATCH
+                message: Не повторять с изменённым телом под тем же ключом
+                traceId: example-trace
+        '503':
+          description: SHIPMENT_API_UNAVAILABLE / DEPENDENCY_UNAVAILABLE - Повторить после Retry-After; отмена
+            не подтверждена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: SHIPMENT_API_UNAVAILABLE
+                message: Повторить после Retry-After; отмена не подтверждена
+                traceId: example-trace
+          headers:
+            Retry-After:
+              description: Секунды до допустимой следующей попытки
+              schema:
+                type: integer
+                minimum: 0
+        '200':
+          description: Отменена, включая повтор уже отменённой заявки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelledReturn'
+      x-versioning: Совместимые необязательные дополнения в 1.0; изменение смысла, обязательности, пути или
+        метода - новый контракт /2.0, старый сохраняется.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelReturn'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Проектный токен интеграции; порядок подключения в b-docs.md
+  schemas:
+    ReturnState:
+      type: string
+      enum:
+      - DRAFT
+      - SUBMITTED
+      - REGISTERED
+      - IN_TRANSIT
+      - DELIVERED
+      - CANCELLED
+      - REJECTED
+      - EXPIRED
+      - CLOSED_UNDELIVERED
+      description: Терминология З-7, З-8, З-10. DRAFT - черновик; SUBMITTED - оформлена, ожидает ШПИ; REGISTERED
+        - зарегистрирована; IN_TRANSIT - принята в отделении; DELIVERED - получена организацией; CANCELLED
+        - отменена; REJECTED - отклонена; EXPIRED - срок сдачи истёк; CLOSED_UNDELIVERED - закрыта без вручения.
+    Return:
+      type: object
+      properties:
+        returnId:
+          type: string
+          format: uuid
+        originalBarcode:
+          type: string
+          pattern: ^[0-9]{14}$
+        state:
+          $ref: '#/components/schemas/ReturnState'
+        createdAt:
+          type: string
+          format: date-time
+        barcode:
+          type: string
+          nullable: true
+          pattern: ^[0-9]{14}$
+        returnReason:
+          $ref: '#/components/schemas/ReturnReason'
+        returnReasonComment:
+          type: string
+          maxLength: 500
+        stateUpdatedAt:
+          type: string
+          format: date-time
+          description: Время последнего изменения или подтверждения состояния
+        financialState:
+          $ref: '#/components/schemas/FinancialState'
+      required:
+      - returnId
+      - originalBarcode
+      - state
+      - createdAt
+      - returnReason
+      - stateUpdatedAt
+      - financialState
+    CreateReturn:
+      type: object
+      properties:
+        originalBarcode:
+          type: string
+          pattern: ^[0-9]{14}$
+        returnReason:
+          $ref: '#/components/schemas/ReturnReason'
+        returnReasonComment:
+          type: string
+          maxLength: 500
+      required:
+      - originalBarcode
+      - returnReason
+      allOf:
+      - oneOf:
+        - properties:
+            returnReason:
+              enum:
+              - OTHER
+            returnReasonComment:
+              type: string
+              minLength: 1
+              pattern: \S
+          required:
+          - returnReasonComment
+        - properties:
+            returnReason:
+              enum:
+              - BUYER_REFUSAL
+    CancelReturn:
+      type: object
+      properties:
+        reason:
+          type: string
+          enum:
+          - CLIENT_REQUEST
+          - DUPLICATE
+          - WRONG_DATA
+          - OTHER
+        comment:
+          type: string
+          maxLength: 500
+      required:
+      - reason
+      description: При reason=OTHER comment обязателен и не пуст после удаления пробелов.
+      allOf:
+      - oneOf:
+        - properties:
+            reason:
+              enum:
+              - OTHER
+            comment:
+              type: string
+              minLength: 1
+              pattern: \S
+          required:
+          - comment
+        - properties:
+            reason:
+              enum:
+              - CLIENT_REQUEST
+              - DUPLICATE
+              - WRONG_DATA
+    CancelledReturn:
+      type: object
+      properties:
+        returnId:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum:
+          - CANCELLED
+        previousState:
+          type: string
+          enum:
+          - DRAFT
+          - SUBMITTED
+          - REGISTERED
+        cancelledAt:
+          type: string
+          format: date-time
+        barcode:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          enum:
+          - CLIENT_REQUEST
+          - DUPLICATE
+          - WRONG_DATA
+          - OTHER
+      required:
+      - returnId
+      - state
+      - previousState
+      - cancelledAt
+      - reason
+    ReturnPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Return'
+        nextCursor:
+          type: string
+          nullable: true
+      required:
+      - items
+      - nextCursor
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Стабильный машиночитаемый код
+        message:
+          type: string
+          description: Текст для человека; не часть машинного контракта.
+        traceId:
+          type: string
+        currentState:
+          $ref: '#/components/schemas/ReturnState'
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              issue:
+                type: string
+            required:
+            - field
+            - issue
+      required:
+      - code
+      - message
+      - traceId
+    ReturnReason:
+      type: string
+      enum:
+      - BUYER_REFUSAL
+      - OTHER
+      description: 'Учебный минимальный справочник причин возврата: отказ покупателя или другая причина.'
+    FinancialState:
+      type: string
+      enum:
+      - NONE
+      - HELD
+      - CAPTURE_PENDING
+      - CAPTURED
+      - RELEASE_PENDING
+      - RELEASED
+      description: Финансовая фаза отдельно от состояния отправления. Списание при приёме; освобождение при
+        отмене, отказе или истечении срока.
